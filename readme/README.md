@@ -2,6 +2,20 @@
 
 A two-stage deep learning pipeline for detecting dog faces and classifying their emotions using YOLOv8 and ResNet50.
 
+## 🚀 Getting Started
+
+**New to this project? Start here!** 👇
+
+➡️ **[QUICKSTART.md](QUICKSTART.md)** - Complete setup guide with CPU & GPU instructions (10 minutes)
+
+This is your **single source of truth** for:
+- ✅ Installation (CPU vs GPU)
+- ✅ Dataset setup
+- ✅ Running experiments
+- ✅ Troubleshooting common issues
+
+---
+
 ## 📋 Project Overview
 
 This project implements a complete computer vision pipeline that:

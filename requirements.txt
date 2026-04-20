@@ -1,34 +1,46 @@
-# Core ML Frameworks (CPU version for testing, GPU version for training)
-# For CPU testing (faster installation):
-torch>=2.0.0
-torchvision>=0.15.0
+# ============================================================================
+# Visual Dog Emotion Recognition - Dependencies
+# ============================================================================
+# 
+# IMPORTANT: PyTorch is NOT included here due to platform-specific variants.
+# Install PyTorch FIRST based on your environment:
+#
+# For CPU (Local Testing):
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+#
+# For GPU (AWS SageMaker with CUDA 11.8):
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+#
+# Then install the rest:
+#   pip install -r requirements.txt
+#
+# ============================================================================
 
-# For GPU training on AWS SageMaker, uncomment below and comment out above:
-# torch>=2.0.0+cu118
-# torchvision>=0.15.0+cu118
+# Core ML & Computer Vision
+ultralytics>=8.0.0          # YOLOv8 for dog detection
+opencv-python>=4.7.0        # Image processing
+Pillow>=9.5.0               # Image handling
 
-# Detection
-ultralytics>=8.0.0
+# Data Science & Numerical Computing
+numpy>=1.24.0,<2.0.0        # ⚠️ Must be <2.0 for compatibility
+pandas>=2.0.0               # Data manipulation
+scikit-learn>=1.2.0         # ML utilities and metrics
+scipy>=1.10.0               # Scientific computing
 
-# Image Processing
-opencv-python>=4.7.0
-Pillow>=9.5.0
-
-# Data Science
-numpy>=1.24.0
-pandas>=2.0.0
-scikit-learn>=1.2.0
+# Data Augmentation
+albumentations>=1.3.0       # Advanced image augmentations
 
 # Visualization
-matplotlib>=3.7.0
-seaborn>=0.12.0
+matplotlib>=3.7.0           # Plotting and charts
+seaborn>=0.12.0             # Statistical visualizations
 
 # Utilities
-tqdm>=4.65.0
-pyyaml>=6.0
+tqdm>=4.65.0                # Progress bars
+pyyaml>=6.0                 # Configuration file parsing
 
 # Dataset Download
-kaggle>=1.5.0
+kaggle>=1.5.0               # Kaggle API client
 
-# Optional: Advanced augmentations
-# albumentations>=1.3.0
+# Optional: Experiment Tracking (uncomment if needed)
+# wandb>=0.15.0             # Weights & Biases
+# mlflow>=2.0.0             # MLflow tracking
