@@ -1,6 +1,16 @@
 """
 Emotion Dataset Preprocessor
 Converts raw emotion dataset to unified format (X_train, X_valid, X_test, y_*)
+
+Dataset Structure:
+data/raw/emotion_dataset/
+├── alert/      # Alert emotion images
+├── angry/      # Angry emotion images
+├── frown/      # Frown emotion images
+├── happy/      # Happy emotion images
+└── relax/      # Relaxed emotion images
+
+Each folder contains images (*.jpg) representing that emotion class.
 """
 
 import os
@@ -62,6 +72,14 @@ class EmotionPreprocessor:
         images, labels = self._load_raw_data()
         print(f"  Loaded {len(images)} images across {len(self.classes)} classes")
         
+        # Display class distribution
+        print("\n  Class distribution:")
+        from collections import Counter
+        label_counts = Counter(labels)
+        for cls in self.classes:
+            count = label_counts.get(cls, 0)
+            print(f"    {cls}: {count}")
+        
         # Preprocess images
         print("\n[2/4] Preprocessing images...")
         X, y = self._preprocess_data(images, labels)
@@ -83,20 +101,16 @@ class EmotionPreprocessor:
         print(f"  Train: {splits['X_train'].shape[0]}")
         print(f"  Valid: {splits['X_valid'].shape[0]}")
         print(f"  Test: {splits['X_test'].shape[0]}")
-        print(f"\nClass distribution:")
-        for cls in self.classes:
-            count = sum(1 for label in labels if label == cls)
-            print(f"  {cls}: {count}")
     
     def _load_raw_data(self) -> Tuple[List[str], List[str]]:
         """
         Load raw emotion dataset from folder structure.
         Expected structure:
         emotion_dataset/
-            angry/
+            alert/
                 img1.jpg
                 img2.jpg
-            happy/
+            angry/
                 img1.jpg
                 ...
         
@@ -113,10 +127,12 @@ class EmotionPreprocessor:
                 print(f"Warning: Class directory not found: {class_dir}")
                 continue
             
-            # Get all image files
-            image_files = list(class_dir.glob("*.jpg")) + \
-                         list(class_dir.glob("*.jpeg")) + \
-                         list(class_dir.glob("*.png"))
+            # Get all image files (support multiple extensions)
+            image_files = []
+            for ext in ['*.jpg', '*.jpeg', '*.png', '*.JPG', '*.JPEG', '*.PNG']:
+                image_files.extend(class_dir.glob(ext))
+            
+            image_files = sorted(image_files)  # Sort for reproducibility
             
             for img_file in image_files:
                 images.append(str(img_file))
@@ -138,11 +154,13 @@ class EmotionPreprocessor:
         X_list = []
         y_list = []
         
+        failed_count = 0
         for img_path, label in tqdm(zip(images, labels), total=len(images), desc="Processing"):
             try:
                 # Load image
                 img = cv2.imread(img_path)
                 if img is None:
+                    failed_count += 1
                     continue
                 
                 # Resize to target size
@@ -159,7 +177,11 @@ class EmotionPreprocessor:
                 
             except Exception as e:
                 print(f"Warning: Error processing {img_path}: {e}")
+                failed_count += 1
                 continue
+        
+        if failed_count > 0:
+            print(f"  Warning: Failed to process {failed_count} images")
         
         X = np.array(X_list)
         y = np.array(y_list)
@@ -181,11 +203,12 @@ class EmotionPreprocessor:
         
         train_ratio = self.config['datasets']['emotion']['train_ratio']
         val_ratio = self.config['datasets']['emotion']['val_ratio']
+        test_ratio = 1 - train_ratio - val_ratio
         
         # First split: separate test set (stratified)
         X_temp, X_test, y_temp, y_test = train_test_split(
             X, y, 
-            test_size=1-train_ratio-val_ratio, 
+            test_size=test_ratio, 
             random_state=42,
             stratify=y
         )
@@ -216,10 +239,10 @@ class EmotionPreprocessor:
         
         # Save metadata
         metadata = {
-            'total_samples': len(splits['X_train']) + len(splits['X_valid']) + len(splits['X_test']),
-            'train_samples': len(splits['X_train']),
-            'valid_samples': len(splits['X_valid']),
-            'test_samples': len(splits['X_test']),
+            'total_samples': int(len(splits['X_train']) + len(splits['X_valid']) + len(splits['X_test'])),
+            'train_samples': int(len(splits['X_train'])),
+            'valid_samples': int(len(splits['X_valid'])),
+            'test_samples': int(len(splits['X_test'])),
             'image_size': self.image_size,
             'num_classes': len(self.classes),
             'classes': self.classes,

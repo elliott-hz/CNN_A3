@@ -10,7 +10,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 
-from src.data_processing.download_datasets import download_datasets
+from src.data_processing.processed_datasets_verify import verify_processed_datasets
 from src.data_processing.emotion_preprocessor import EmotionPreprocessor
 from src.models.classification_model import ResNet50Classifier, MODIFIED_V2_CLASSIFICATION_CONFIG
 from src.training.classification_trainer import ClassificationTrainer
@@ -29,25 +29,24 @@ def main():
     logger.info(f"STARTING EXPERIMENT: {experiment_name}")
     logger.info("=" * 80)
     
-    # Steps 1-3: Data preparation
-    logger.info("\n[Step 1/5] Checking datasets...")
-    download_datasets()
+    # Step 1: Verify datasets are processed
+    logger.info("\n[Step 1/5] Verifying processed datasets...")
+    if not verify_processed_datasets():
+        logger.error("Datasets not ready. Please run preprocessing first.")
+        logger.error("Run: python src/data_processing/detection_preprocessor.py")
+        logger.error("Run: python src/data_processing/emotion_preprocessor.py")
+        sys.exit(1)
     
-    logger.info("\n[Step 2/5] Preprocessing emotion dataset...")
+    # Step 2: Load preprocessed data
+    logger.info("\n[Step 2/5] Loading preprocessed data...")
     preprocessor = EmotionPreprocessor()
-    if not preprocessor.is_processed():
-        preprocessor.process()
-    else:
-        logger.info("Emotion data already preprocessed. Skipping.")
-    
-    logger.info("\n[Step 3/5] Loading preprocessed data...")
     X_train, y_train = preprocessor.load_split('train')
     X_valid, y_valid = preprocessor.load_split('valid')
     X_test, y_test = preprocessor.load_split('test')
     
     logger.info(f"Train: {len(X_train)}, Valid: {len(X_valid)}, Test: {len(X_test)}")
     
-    # Step 4: Initialize model and trainer
+    # Step 3: Initialize model and trainer
     logger.info("\n[Step 4/5] Initializing model and trainer...")
     
     model_config = MODIFIED_V2_CLASSIFICATION_CONFIG.copy()
@@ -72,7 +71,7 @@ def main():
     model = ResNet50Classifier(model_config)
     trainer = ClassificationTrainer(model_config, training_config)
     
-    # Step 5: Train and evaluate
+    # Step 4: Train and evaluate
     logger.info("\n[Step 5/5] Training model...")
     try:
         history = trainer.train(

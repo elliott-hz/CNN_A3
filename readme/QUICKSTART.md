@@ -8,7 +8,7 @@ Get up and running in 10 minutes! This guide covers both **CPU (local testing)**
 
 This project implements a two-stage pipeline:
 1. **Dog Detection** (YOLOv8) - Find dogs in images
-2. **Emotion Classification** (ResNet50) - Classify emotions: Angry, Fearful, Happy, Sad
+2. **Emotion Classification** (ResNet50) - Classify emotions: Angry, Happy, Relaxed, Frown, Alert
 
 ---
 
@@ -16,7 +16,7 @@ This project implements a two-stage pipeline:
 
 - Python 3.9 - 3.11 (⚠️ **Python 3.12+ not supported yet**)
 - Git
-- Kaggle account (for dataset download)
+- Datasets already downloaded and extracted to `data/raw/` directory
 
 ---
 
@@ -56,7 +56,7 @@ pip install 'numpy>=1.24.0,<2.0.0' --force-reinstall
 
 ✅ **Verify Installation:**
 ```bash
-python test_logic_validation.py
+python test_setup.py
 ```
 
 Expected output: `🎉 ALL TESTS PASSED!`
@@ -93,28 +93,104 @@ Expected output: `CUDA Available: True`
 
 ## 📊 Dataset Setup
 
-### Step 1: Configure Kaggle API
+### ⚠️ Important: Data Preprocessing Workflow
 
-```bash
-# Create directory
-mkdir -p ~/.kaggle
+This project uses a **two-step data workflow**:
+1. **Manual Download**: You must download and extract datasets to `data/raw/` before running any experiments
+2. **Automated Preprocessing**: Run the preprocessing script to convert raw data into training-ready format
 
-# Download kaggle.json from:
-# https://www.kaggle.com/<your-username>/account
+### Dataset Structure
 
-# Place it in ~/.kaggle/ and set permissions
-chmod 600 ~/.kaggle/kaggle.json
+Your `data/raw/` directory should contain:
+
+```
+data/raw/
+├── detection_dataset/          # Dog face detection dataset
+│   ├── train_img/             # Training images (~5924 .jpg files)
+│   ├── train_label/           # Training labels (YOLO format .txt files)
+│   ├── val_img/               # Validation images (~230 .jpg files)
+│   └── val_label/             # Validation labels (YOLO format .txt files)
+│
+└── emotion_dataset/            # Dog emotion classification dataset
+    ├── alert/                 # ~1865 images
+    ├── angry/                 # ~1865 images
+    ├── frown/                 # ~1865 images
+    ├── happy/                 # ~1865 images
+    └── relax/                 # ~1865 images
 ```
 
-### Step 2: Accept Dataset Rules
+### Step 1: Verify Raw Data Exists
 
-Visit these pages and click "Accept Rules":
-1. [Dog Emotion Dataset](https://www.kaggle.com/datasets) *(replace with actual link)*
-2. [Dog Detection Dataset](https://www.kaggle.com/datasets) *(replace with actual link)*
+Make sure you have downloaded and extracted both datasets:
+- **Detection Dataset**: Dog Face Detection from Kaggle
+- **Emotion Dataset**: Dog Emotions (5 classes) from Kaggle
 
-### Step 3: Download Datasets (Automatic)
+Place them in the correct directories as shown above.
 
-The first experiment will automatically download and preprocess datasets. No manual action needed!
+### Step 2: Run Data Preprocessing
+
+Once raw data is in place, run the preprocessing script:
+
+```bash
+bash scripts/run_data_preprocessing.sh
+```
+
+This will:
+1. Load all images from `data/raw/`
+2. Resize and normalize images
+3. Parse YOLO-format annotations (for detection)
+4. Split data into train/valid/test sets (70/20/10)
+5. Save processed data to `data/processed/` as numpy arrays
+
+**Expected output:**
+```
+==========================================
+Running Data Preprocessing
+==========================================
+
+[1/2] Preprocessing Detection Dataset...
+================================================================================
+DETECTION DATASET PREPROCESSING
+================================================================================
+...
+PREPROCESSING COMPLETE
+Total samples: 6154
+  Train: 4307
+  Valid: 1231
+  Test: 616
+
+[2/2] Preprocessing Emotion Dataset...
+================================================================================
+EMOTION DATASET PREPROCESSING
+================================================================================
+...
+PREPROCESSING COMPLETE
+Total samples: 9325
+  Train: 6527
+  Valid: 1865
+  Test: 933
+
+==========================================
+Data preprocessing complete!
+==========================================
+```
+
+### Step 3: Verify Processed Data
+
+After preprocessing, verify that data is ready:
+
+```bash
+python src/data_processing/processed_datasets_verify.py
+```
+
+You should see:
+```
+✓ ALL DATASETS READY
+Detection dataset: data/processed/detection
+Emotion dataset: data/processed/emotion
+```
+
+**Note:** Preprocessing only needs to be done **once**. All experiments will reuse the processed data.
 
 ---
 
@@ -126,7 +202,7 @@ Before training, verify all components work:
 
 ```bash
 source .venv/bin/activate  # If using venv
-python test_logic_validation.py
+python test_setup.py
 ```
 
 This tests:
@@ -146,14 +222,14 @@ python experiments/exp04_classification_baseline.py
 ```
 
 **What happens:**
-1. Downloads datasets (first time only)
-2. Preprocesses data
+1. Verifies processed datasets exist
+2. Loads preprocessed emotion data
 3. Trains ResNet50 model
 4. Evaluates on test set
 5. Saves results to `outputs/exp04_classification_baseline/run_TIMESTAMP/`
 
 **Expected runtime:**
-- CPU: ~30-60 minutes (small dataset)
+- CPU: ~30-60 minutes (small dataset, few epochs)
 - GPU: ~5-10 minutes
 
 ---
@@ -269,13 +345,22 @@ pip install 'numpy>=1.24.0,<2.0.0' --force-reinstall
 
 ---
 
-### Issue: "Kaggle API authentication error"
+### Issue: "Datasets not ready. Please run preprocessing first."
+
+**Cause:** You haven't run the preprocessing script yet, or processed data is missing.
 
 **Solution:**
-1. Ensure `~/.kaggle/kaggle.json` exists
-2. Set permissions: `chmod 600 ~/.kaggle/kaggle.json`
-3. Accept dataset rules on Kaggle website
-4. Test: `kaggle datasets list`
+```bash
+# Step 1: Verify raw data exists
+ls data/raw/detection_dataset/
+ls data/raw/emotion_dataset/
+
+# Step 2: Run preprocessing
+bash scripts/run_data_preprocessing.sh
+
+# Step 3: Verify processed data
+python src/data_processing/processed_datasets_verify.py
+```
 
 ---
 
@@ -368,15 +453,18 @@ find outputs/ -type d -name "run_*" | sort | head -n -1 | xargs rm -rf
 1. Check error messages carefully
 2. Verify all dependencies: `pip list`
 3. Review experiment script that failed
-4. Check [`test_logic_validation.py`](test_logic_validation.py) passes
+4. Check [`test_setup.py`](test_setup.py) passes
+5. Ensure data preprocessing completed: `python src/data_processing/processed_datasets_verify.py`
 
 ---
 
 ## ✅ Checklist Before GPU Training
 
-- [ ] Local CPU tests pass (`python test_logic_validation.py`)
+- [ ] Local CPU tests pass (`python test_setup.py`)
+- [ ] Raw datasets downloaded to `data/raw/`
+- [ ] Data preprocessing completed (`bash scripts/run_data_preprocessing.sh`)
+- [ ] Processed data verified (`python src/data_processing/processed_datasets_verify.py`)
 - [ ] At least one experiment completed successfully on CPU
-- [ ] Kaggle API configured
 - [ ] GPU environment ready (AWS SageMaker)
 - [ ] Sufficient storage space (datasets ~2-3GB)
 

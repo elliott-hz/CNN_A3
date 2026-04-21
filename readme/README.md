@@ -2,20 +2,6 @@
 
 A two-stage deep learning pipeline for detecting dog faces and classifying their emotions using YOLOv8 and ResNet50.
 
-## 🚀 Getting Started
-
-**New to this project? Start here!** 👇
-
-➡️ **[QUICKSTART.md](QUICKSTART.md)** - Complete setup guide with CPU & GPU instructions (10 minutes)
-
-This is your **single source of truth** for:
-- ✅ Installation (CPU vs GPU)
-- ✅ Dataset setup
-- ✅ Running experiments
-- ✅ Troubleshooting common issues
-
----
-
 ## 📋 Project Overview
 
 This project implements a complete computer vision pipeline that:
@@ -31,11 +17,13 @@ Input Image → [YOLOv8 Detection] → Crop Faces → [ResNet50 Classification] 
 
 ```
 CNN_A3/
-├── data/                    # Datasets (auto-created)
-│   ├── raw/                # Original downloaded data
-│   └── processed/          # Preprocessed splits
+├── data/                    # Datasets
+│   ├── raw/                # Raw datasets (must be downloaded manually)
+│   │   ├── detection_dataset/   # Dog face detection images & labels
+│   │   └── emotion_dataset/     # Dog emotion classification images
+│   └── processed/          # Preprocessed numpy arrays (auto-created)
 ├── src/                    # Source code
-│   ├── data_processing/    # Data download & preprocessing
+│   ├── data_processing/    # Data preprocessing & verification
 │   ├── models/             # Model definitions
 │   ├── training/           # Training frameworks
 │   ├── evaluation/         # Evaluation metrics
@@ -49,91 +37,12 @@ CNN_A3/
 │   ├── exp05_classification_modified_v1.py
 │   └── exp06_classification_modified_v2.py
 ├── outputs/                # Experiment results (auto-created)
+├── scripts/                # Automation scripts
+│   ├── run_data_preprocessing.sh  # Run data preprocessing
+│   ├── run_all_experiments.sh     # Run all experiments
+│   └── inference_demo.sh          # Inference demonstration
 ├── config.yaml             # Global configuration
 └── requirements.txt        # Dependencies
-```
-
-## 🚀 Quick Start
-
-### 1. Installation
-
-```bash
-# Clone repository
-git clone <repository-url>
-cd CNN_A3
-
-# Create virtual environment (recommended)
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-```
-
-### 2. Setup Kaggle API
-
-To download datasets, you need Kaggle API credentials:
-
-```bash
-# Install kaggle CLI
-pip install kaggle
-
-# Create .kaggle directory
-mkdir -p ~/.kaggle
-
-# Place your kaggle.json file in ~/.kaggle/
-# Download from: https://www.kaggle.com/<username>/account
-
-# Set permissions
-chmod 600 ~/.kaggle/kaggle.json
-```
-
-### 3. Download and Preprocess Data
-
-Data is automatically downloaded and preprocessed when you run experiments. You can also do it manually:
-
-```bash
-# Download datasets
-python src/data_processing/download_datasets.py
-
-# Preprocess detection data
-python -c "from src.data_processing.detection_preprocessor import DetectionPreprocessor; DetectionPreprocessor().process()"
-
-# Preprocess emotion data
-python -c "from src.data_processing.emotion_preprocessor import EmotionPreprocessor; EmotionPreprocessor().process()"
-```
-
-### 4. Run Experiments
-
-#### Run a Single Experiment
-
-```bash
-# Detection baseline
-python experiments/exp01_detection_baseline.py
-
-# Classification baseline
-python experiments/exp04_classification_baseline.py
-```
-
-#### Run All Experiments
-
-```bash
-bash scripts/run_all_experiments.sh
-```
-
-### 5. View Results
-
-After running experiments, check the outputs:
-
-```bash
-# List experiment results
-ls outputs/exp01_detection_baseline/
-
-# View latest run
-ls outputs/exp01_detection_baseline/run_*/
-
-# Read experiment report
-cat outputs/exp01_detection_baseline/run_*/logs/experiment_report.md
 ```
 
 ## 🧪 Experiments
@@ -179,7 +88,7 @@ outputs/exp01_detection_baseline/run_20260420_193045/
     └── sample_detections.png
 ```
 
-## 🎯 Inference
+## 🎯 Inference API
 
 ### Detection Only
 
@@ -220,32 +129,52 @@ pipeline.visualize('test_image.jpg', 'output.jpg')
 - ✅ **Reproducible**: Timestamped runs with complete logging
 - ✅ **Memory Efficient**: Mixed precision training, gradient accumulation
 - ✅ **Experiment Tracking**: Automatic metric logging and report generation
+- ✅ **Simplified Data Workflow**: Manual download + automated preprocessing pipeline
 
-## 🛠️ Troubleshooting
+## 🚀 Quick Start
 
-### Out of Memory (OOM)
-
-Reduce batch size or enable gradient accumulation in experiment scripts:
-
-```python
-training_config = {
-    'batch_size': 8,  # Reduce from 16 or 32
-    'gradient_accumulation_steps': 2,  # Accumulate gradients
-    'use_amp': True,  # Enable mixed precision
-}
-```
-
-### Slow Training
-
-- Ensure GPU is available: `torch.cuda.is_available()`
-- Use smaller model variants (backbone='s' instead of 'm')
-- Reduce number of epochs for testing
-
-### Missing Dependencies
+### 1. Setup Environment
 
 ```bash
+# Install PyTorch first (choose CPU or GPU version)
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu  # CPU
+# OR
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118  # GPU
+
+# Install other dependencies
 pip install -r requirements.txt
 ```
+
+### 2. Prepare Datasets
+
+Download datasets from Kaggle and extract to `data/raw/`:
+- Detection dataset → `data/raw/detection_dataset/`
+- Emotion dataset → `data/raw/emotion_dataset/`
+
+Then run preprocessing:
+```bash
+bash scripts/run_data_preprocessing.sh
+```
+
+### 3. Run Experiments
+
+```bash
+# Run single experiment
+python experiments/exp04_classification_baseline.py
+
+# Or run all experiments
+bash scripts/run_all_experiments.sh
+```
+
+For detailed instructions, see [QUICKSTART.md](QUICKSTART.md).
+
+## 💡 Key Features
+
+- ✅ **Modular Design**: Separate modules for data, models, training, evaluation
+- ✅ **Configuration-Driven**: Easy to modify hyperparameters via config files
+- ✅ **Reproducible**: Timestamped runs with complete logging
+- ✅ **Memory Efficient**: Mixed precision training, gradient accumulation
+- ✅ **Experiment Tracking**: Automatic metric logging and report generation
 
 ## 📝 License
 
