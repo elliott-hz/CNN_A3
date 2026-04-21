@@ -93,11 +93,17 @@ Expected output: `CUDA Available: True`
 
 ## 📊 Dataset Setup
 
-### ⚠️ Important: Data Preprocessing Workflow
+### ⚠️ Important: Simplified Data Workflow
 
-This project uses a **two-step data workflow**:
+This project uses a **minimal data preparation workflow**:
 1. **Manual Download**: You must download and extract datasets to `data/raw/` before running any experiments
-2. **Automated Preprocessing**: Run the preprocessing script to convert raw data into training-ready format
+2. **Lightweight Parsing**: Run the parsing script to organize data paths and create train/val/test splits
+3. **No Preprocessing**: Images are NOT resized, normalized, or augmented - they're loaded on-the-fly during training
+
+**Key Benefits:**
+- ✅ No memory issues (images not loaded into RAM)
+- ✅ Fast setup (seconds instead of minutes)
+- ✅ Flexible (preprocessing happens in training pipeline with augmentations)
 
 ### Dataset Structure
 
@@ -127,20 +133,19 @@ Make sure you have downloaded and extracted both datasets:
 
 Place them in the correct directories as shown above.
 
-### Step 2: Run Data Preprocessing
+### Step 2: Run Data Parsing and Splitting
 
-Once raw data is in place, run the preprocessing script:
+Once raw data is in place, run the parsing script:
 
 ```bash
 bash scripts/run_data_preprocessing.sh
 ```
 
 This will:
-1. Load all images from `data/raw/`
-2. Resize and normalize images
-3. Parse YOLO-format annotations (for detection)
-4. Split data into train/valid/test sets (70/20/10)
-5. Save processed data to `data/processed/` as numpy arrays
+1. Parse YOLO-format annotations (for detection dataset)
+2. Organize image paths by class (for emotion dataset)
+3. Split data into train/valid/test sets (70/20/10)
+4. Save lightweight JSON metadata to `data/processed/`
 
 **Expected output:**
 ```
@@ -148,36 +153,72 @@ This will:
 Running Data Preprocessing
 ==========================================
 
-[1/2] Preprocessing Detection Dataset...
+[1/2] Parsing Detection Dataset...
 ================================================================================
-DETECTION DATASET PREPROCESSING
+DETECTION DATASET PARSING AND SPLITTING
 ================================================================================
-...
-PREPROCESSING COMPLETE
-Total samples: 6154
-  Train: 4307
-  Valid: 1231
-  Test: 616
 
-[2/2] Preprocessing Emotion Dataset...
+[1/4] Loading training data...
+  Loaded 5924 training images
+
+[2/4] Loading validation data...
+  Loaded 230 validation images
+
+[3/4] Combining and splitting dataset (70/20/10)...
+
+[4/4] Saving split metadata...
+  Saved train split: 4307 images
+  Saved val split: 1231 images
+  Saved test split: 616 images
+  Saved metadata
+
+PARSING AND SPLITTING COMPLETE
+Total samples: 6154
+  Train: 4307 images
+  Valid: 1231 images
+  Test: 616 images
+
+Note: Images are NOT preprocessed. They will be loaded during training.
+
+[2/2] Parsing Emotion Dataset...
 ================================================================================
-EMOTION DATASET PREPROCESSING
+EMOTION DATASET PARSING AND SPLITTING
 ================================================================================
-...
-PREPROCESSING COMPLETE
+
+[1/3] Loading and organizing dataset...
+  Loaded 9325 images across 5 classes
+
+  Class distribution:
+    alert: 1865
+    angry: 1865
+    frown: 1865
+    happy: 1865
+    relax: 1865
+
+[2/3] Splitting dataset (70/20/10)...
+
+[3/3] Saving split metadata...
+  Saved train split: 6527 images
+  Saved val split: 1865 images
+  Saved test split: 933 images
+  Saved metadata
+
+PARSING AND SPLITTING COMPLETE
 Total samples: 9325
-  Train: 6527
-  Valid: 1865
-  Test: 933
+  Train: 6527 images
+  Valid: 1865 images
+  Test: 933 images
+
+Note: Images are NOT preprocessed. They will be loaded during training.
 
 ==========================================
-Data preprocessing complete!
+Data parsing complete!
 ==========================================
 ```
 
-### Step 3: Verify Processed Data
+### Step 3: Verify Parsed Data
 
-After preprocessing, verify that data is ready:
+After parsing, verify that data is ready:
 
 ```bash
 python src/data_processing/processed_datasets_verify.py
@@ -190,7 +231,7 @@ Detection dataset: data/processed/detection
 Emotion dataset: data/processed/emotion
 ```
 
-**Note:** Preprocessing only needs to be done **once**. All experiments will reuse the processed data.
+**Note:** Parsing only needs to be done **once**. All experiments will reuse the split metadata.
 
 ---
 

@@ -1,6 +1,7 @@
 """
 Emotion Dataset Preprocessor
-Converts raw emotion dataset to unified format (X_train, X_valid, X_test, y_*)
+Parses raw emotion dataset format and splits into train/val/test subsets.
+NO preprocessing (resize, normalize, etc.) - just format parsing and splitting.
 
 Dataset Structure:
 data/raw/emotion_dataset/
@@ -11,6 +12,10 @@ data/raw/emotion_dataset/
 └── relax/      # Relaxed emotion images
 
 Each folder contains images (*.jpg) representing that emotion class.
+
+Output:
+Split metadata saved to: data/splitting/emotion_split/
+Images are loaded on-the-fly during training.
 """
 
 import os
@@ -19,14 +24,14 @@ import numpy as np
 import json
 import yaml
 from tqdm import tqdm
-import cv2
 from typing import Tuple, List, Dict
 
 
 class EmotionPreprocessor:
     """
-    Preprocesses dog emotion classification dataset.
-    Converts folder-based structure to unified numpy arrays.
+    Parses dog emotion classification dataset and splits into train/val/test.
+    Only organizes folder structure and creates split indices.
+    No image preprocessing - images loaded during training.
     """
     
     def __init__(self, config_path: str = "config.yaml"):
@@ -40,35 +45,31 @@ class EmotionPreprocessor:
             self.config = yaml.safe_load(f)
         
         self.raw_data_dir = Path(self.config['paths']['raw_data']) / "emotion_dataset"
-        self.processed_dir = Path(self.config['paths']['processed_data']) / "emotion"
-        self.image_size = self.config['datasets']['emotion']['image_size']
+        self.splitting_dir = Path("data/splitting/emotion_split")
         self.classes = self.config['datasets']['emotion']['classes']
         self.class_to_idx = {cls: idx for idx, cls in enumerate(self.classes)}
         
-        # Create processed directory
-        self.processed_dir.mkdir(parents=True, exist_ok=True)
+        # Create directory
+        self.splitting_dir.mkdir(parents=True, exist_ok=True)
     
     def is_processed(self) -> bool:
-        """Check if data has already been preprocessed."""
+        """Check if data has already been parsed and split."""
         required_files = [
-            self.processed_dir / "X_train.npy",
-            self.processed_dir / "X_valid.npy",
-            self.processed_dir / "X_test.npy",
-            self.processed_dir / "y_train.npy",
-            self.processed_dir / "y_valid.npy",
-            self.processed_dir / "y_test.npy",
-            self.processed_dir / "metadata.json"
+            self.splitting_dir / "train_split.json",
+            self.splitting_dir / "val_split.json",
+            self.splitting_dir / "test_split.json",
+            self.splitting_dir / "metadata.json"
         ]
         return all(f.exists() for f in required_files)
     
     def process(self):
-        """Main preprocessing pipeline."""
+        """Main parsing and splitting pipeline."""
         print("=" * 80)
-        print("EMOTION DATASET PREPROCESSING")
+        print("EMOTION DATASET PARSING AND SPLITTING")
         print("=" * 80)
         
         # Load and organize data by class
-        print("\n[1/4] Loading and organizing dataset...")
+        print("\n[1/3] Loading and organizing dataset...")
         images, labels = self._load_raw_data()
         print(f"  Loaded {len(images)} images across {len(self.classes)} classes")
         
@@ -80,27 +81,24 @@ class EmotionPreprocessor:
             count = label_counts.get(cls, 0)
             print(f"    {cls}: {count}")
         
-        # Preprocess images
-        print("\n[2/4] Preprocessing images...")
-        X, y = self._preprocess_data(images, labels)
-        print(f"  Preprocessed shape: X={X.shape}, y={y.shape}")
-        
         # Split dataset
-        print("\n[3/4] Splitting dataset (70/20/10)...")
-        splits = self._split_dataset(X, y)
+        print("\n[2/3] Splitting dataset (70/20/10)...")
+        splits = self._split_dataset(images, labels)
         
-        # Save processed data
-        print("\n[4/4] Saving processed data...")
+        # Save split metadata
+        print("\n[3/3] Saving split metadata...")
         self._save_splits(splits)
         
         print("\n" + "=" * 80)
-        print("PREPROCESSING COMPLETE")
+        print("PARSING AND SPLITTING COMPLETE")
         print("=" * 80)
-        print(f"Output directory: {self.processed_dir}")
-        print(f"Total samples: {len(X)}")
-        print(f"  Train: {splits['X_train'].shape[0]}")
-        print(f"  Valid: {splits['X_valid'].shape[0]}")
-        print(f"  Test: {splits['X_test'].shape[0]}")
+        print(f"Split metadata: {self.splitting_dir}")
+        total_samples = len(splits['train_images']) + len(splits['val_images']) + len(splits['test_images'])
+        print(f"Total samples: {total_samples}")
+        print(f"  Train: {len(splits['train_images'])} images")
+        print(f"  Valid: {len(splits['val_images'])} images")
+        print(f"  Test: {len(splits['test_images'])} images")
+        print("\nNote: Images are NOT preprocessed. They will be loaded during training.")
     
     def _load_raw_data(self) -> Tuple[List[str], List[str]]:
         """
@@ -134,152 +132,116 @@ class EmotionPreprocessor:
             
             image_files = sorted(image_files)  # Sort for reproducibility
             
-            for img_file in image_files:
+            for img_file in tqdm(image_files, desc=f"Loading {class_name}"):
                 images.append(str(img_file))
                 labels.append(class_name)
         
         return images, labels
     
-    def _preprocess_data(self, images: List[str], labels: List[str]) -> Tuple[np.ndarray, np.ndarray]:
+    def _split_dataset(self, images: List[str], labels: List[str]) -> Dict[str, List]:
         """
-        Preprocess images and encode labels.
+        Split dataset into train/valid/test sets with stratification.
         
         Args:
             images: List of image paths
             labels: List of class labels
             
         Returns:
-            Tuple of (images_array, labels_array)
-        """
-        X_list = []
-        y_list = []
-        
-        failed_count = 0
-        for img_path, label in tqdm(zip(images, labels), total=len(images), desc="Processing"):
-            try:
-                # Load image
-                img = cv2.imread(img_path)
-                if img is None:
-                    failed_count += 1
-                    continue
-                
-                # Resize to target size
-                img_resized = cv2.resize(img, (self.image_size, self.image_size))
-                
-                # Normalize to [0, 1]
-                img_normalized = img_resized.astype(np.float32) / 255.0
-                
-                # Convert BGR to RGB
-                img_rgb = cv2.cvtColor(img_normalized, cv2.COLOR_BGR2RGB)
-                
-                X_list.append(img_rgb)
-                y_list.append(self.class_to_idx[label])
-                
-            except Exception as e:
-                print(f"Warning: Error processing {img_path}: {e}")
-                failed_count += 1
-                continue
-        
-        if failed_count > 0:
-            print(f"  Warning: Failed to process {failed_count} images")
-        
-        X = np.array(X_list)
-        y = np.array(y_list)
-        
-        return X, y
-    
-    def _split_dataset(self, X: np.ndarray, y: np.ndarray) -> Dict[str, np.ndarray]:
-        """
-        Split dataset into train/valid/test sets with stratification.
-        
-        Args:
-            X: Images array
-            y: Labels array
-            
-        Returns:
             Dictionary with split datasets
         """
         from sklearn.model_selection import train_test_split
         
+        n_samples = len(images)
         train_ratio = self.config['datasets']['emotion']['train_ratio']
         val_ratio = self.config['datasets']['emotion']['val_ratio']
         test_ratio = 1 - train_ratio - val_ratio
         
         # First split: separate test set (stratified)
         X_temp, X_test, y_temp, y_test = train_test_split(
-            X, y, 
-            test_size=test_ratio, 
-            random_state=42,
-            stratify=y
+            images, labels, test_size=test_ratio, random_state=42, stratify=labels
         )
         
-        # Second split: separate train and validation (stratified)
-        val_ratio_adjusted = val_ratio / (train_ratio + val_ratio)
-        X_train, X_valid, y_train, y_valid = train_test_split(
-            X_temp, y_temp, 
-            test_size=val_ratio_adjusted, 
-            random_state=42,
-            stratify=y_temp
+        # Second split: separate train and validation from remaining (stratified)
+        val_adjusted = val_ratio / (train_ratio + val_ratio)
+        X_train, X_val, y_train, y_val = train_test_split(
+            X_temp, y_temp, test_size=val_adjusted, random_state=42, stratify=y_temp
         )
         
         return {
-            'X_train': X_train,
-            'X_valid': X_valid,
-            'X_test': X_test,
-            'y_train': y_train,
-            'y_valid': y_valid,
-            'y_test': y_test
+            'train_images': X_train,
+            'train_labels': y_train,
+            'val_images': X_val,
+            'val_labels': y_val,
+            'test_images': X_test,
+            'test_labels': y_test
         }
     
-    def _save_splits(self, splits: Dict[str, np.ndarray]):
-        """Save split datasets to disk."""
-        for key, data in splits.items():
-            filepath = self.processed_dir / f"{key}.npy"
-            np.save(filepath, data)
-        
-        # Save metadata
-        metadata = {
-            'total_samples': int(len(splits['X_train']) + len(splits['X_valid']) + len(splits['X_test'])),
-            'train_samples': int(len(splits['X_train'])),
-            'valid_samples': int(len(splits['X_valid'])),
-            'test_samples': int(len(splits['X_test'])),
-            'image_size': self.image_size,
-            'num_classes': len(self.classes),
-            'classes': self.classes,
-            'class_distribution': {
-                cls: int(np.sum(splits['y_train'] == idx) + 
-                        np.sum(splits['y_valid'] == idx) + 
-                        np.sum(splits['y_test'] == idx))
-                for cls, idx in self.class_to_idx.items()
-            },
-            'split_ratios': {
-                'train': self.config['datasets']['emotion']['train_ratio'],
-                'valid': self.config['datasets']['emotion']['val_ratio'],
-                'test': 1 - self.config['datasets']['emotion']['train_ratio'] - self.config['datasets']['emotion']['val_ratio']
-            }
-        }
-        
-        with open(self.processed_dir / "metadata.json", 'w') as f:
-            json.dump(metadata, f, indent=2)
-    
-    def load_split(self, split_name: str = 'train') -> Tuple[np.ndarray, np.ndarray]:
+    def _save_splits(self, splits: Dict[str, List]):
         """
-        Load a specific data split.
+        Save split metadata as JSON files to data/splitting/emotion_split/.
         
         Args:
-            split_name: 'train', 'valid', or 'test'
-            
-        Returns:
-            Tuple of (X, y) arrays
+            splits: Dictionary containing split data
         """
-        X = np.load(self.processed_dir / f"X_{split_name}.npy")
-        y = np.load(self.processed_dir / f"y_{split_name}.npy")
-        return X, y
+        # Save each split as JSON
+        for split_name in ['train', 'val', 'test']:
+            split_data = {
+                'images': splits[f'{split_name}_images'],
+                'labels': splits[f'{split_name}_labels']
+            }
+            output_file = self.splitting_dir / f"{split_name}_split.json"
+            with open(output_file, 'w') as f:
+                json.dump(split_data, f, indent=2)
+            print(f"  Saved {split_name} split: {len(split_data['images'])} images")
+        
+        # Save overall metadata
+        from collections import Counter
+        metadata = {
+            'dataset_type': 'emotion_classification',
+            'classes': self.classes,
+            'class_to_idx': self.class_to_idx,
+            'total_samples': len(splits['train_images']) + len(splits['val_images']) + len(splits['test_images']),
+            'splits': {
+                'train': len(splits['train_images']),
+                'val': len(splits['val_images']),
+                'test': len(splits['test_images'])
+            },
+            'class_distribution': {
+                'train': dict(Counter(splits['train_labels'])),
+                'val': dict(Counter(splits['val_labels'])),
+                'test': dict(Counter(splits['test_labels']))
+            },
+            'format': 'folder_based',
+            'preprocessing': 'none',
+            'note': 'Images are stored as paths and loaded during training'
+        }
+        
+        metadata_file = self.splitting_dir / "metadata.json"
+        with open(metadata_file, 'w') as f:
+            json.dump(metadata, f, indent=2)
+        print(f"  Saved metadata")
+
+
+def main():
+    """Main function to run emotion dataset parsing."""
+    preprocessor = EmotionPreprocessor()
+    
+    if preprocessor.is_processed():
+        print("✓ Emotion dataset already parsed and split.")
+        print(f"  Output directory: {preprocessor.splitting_dir}")
+        print("  Auto-overwriting existing files...")
+        # Automatically proceed without asking
+    
+    try:
+        preprocessor.process()
+        print("\n✓ Parsing complete! You can now run experiments.")
+    except Exception as e:
+        print(f"\n✗ Error during parsing: {e}")
+        import traceback
+        traceback.print_exc()
+        import sys
+        sys.exit(1)
 
 
 if __name__ == "__main__":
-    preprocessor = EmotionPreprocessor()
-    if not preprocessor.is_processed():
-        preprocessor.process()
-    else:
-        print("Data already preprocessed. Skipping.")
+    main()

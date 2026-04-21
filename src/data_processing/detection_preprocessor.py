@@ -1,6 +1,7 @@
 """
-Detection Dataset Preprocessor
-Converts raw detection dataset to unified format (X_train, X_valid, X_test, y_*)
+Detection Dataset Preprocessor with Albumentations Letterbox
+Preprocesses detection dataset using letterbox resize to preserve aspect ratio.
+Saves processed images as individual files (not numpy arrays) for memory efficiency.
 
 Dataset Structure:
 data/raw/detection_dataset/
@@ -9,8 +10,10 @@ data/raw/detection_dataset/
 ├── val_img/           # Validation images (*.jpg)
 └── val_label/         # Validation labels (*.txt, YOLO format)
 
-Label Format (YOLO):
-class_id x_center y_center width height  (all normalized 0-1)
+Output:
+- Processed images saved to: data/processed/detection/{train,valid,test}/
+- Annotations saved to: data/processed/detection/annotations/{train,valid,test}/
+- Split metadata saved to: data/splitting/detection_split/
 """
 
 import os
@@ -21,13 +24,18 @@ import json
 import yaml
 from tqdm import tqdm
 import cv2
+import gc
+import warnings
+import contextlib
+import io
 from typing import Tuple, List, Dict
 
 
 class DetectionPreprocessor:
     """
-    Preprocesses dog face detection dataset.
-    Converts YOLO format annotations to unified numpy arrays.
+    Preprocesses dog face detection dataset using Albumentations letterbox.
+    Preserves aspect ratio with padding to avoid image distortion.
+    Saves processed images as individual files for memory efficiency.
     """
     
     def __init__(self, config_path: str = "config.yaml"):
@@ -42,76 +50,146 @@ class DetectionPreprocessor:
         
         self.raw_data_dir = Path(self.config['paths']['raw_data']) / "detection_dataset"
         self.processed_dir = Path(self.config['paths']['processed_data']) / "detection"
+        self.splitting_dir = Path("data/splitting/detection_split")
         self.image_size = self.config['datasets']['detection']['image_size']
         
-        # Create processed directory
-        self.processed_dir.mkdir(parents=True, exist_ok=True)
+        # Create directories
+        for split in ['train', 'valid', 'test']:
+            (self.processed_dir / split).mkdir(parents=True, exist_ok=True)
+            (self.processed_dir / 'annotations' / split).mkdir(parents=True, exist_ok=True)
+        self.splitting_dir.mkdir(parents=True, exist_ok=True)
     
     def is_processed(self) -> bool:
         """Check if data has already been preprocessed."""
-        required_files = [
-            self.processed_dir / "X_train.npy",
-            self.processed_dir / "X_valid.npy",
-            self.processed_dir / "X_test.npy",
-            self.processed_dir / "y_train.npy",
-            self.processed_dir / "y_valid.npy",
-            self.processed_dir / "y_test.npy",
-            self.processed_dir / "metadata.json"
-        ]
-        return all(f.exists() for f in required_files)
+        # Check if processed directories have images
+        train_dir = self.processed_dir / 'train'
+        valid_dir = self.processed_dir / 'valid'
+        test_dir = self.processed_dir / 'test'
+        
+        if not train_dir.exists() or not valid_dir.exists() or not test_dir.exists():
+            return False
+        
+        # Check if there are any images
+        train_images = list(train_dir.glob('*.jpg'))
+        valid_images = list(valid_dir.glob('*.jpg'))
+        test_images = list(test_dir.glob('*.jpg'))
+        
+        return len(train_images) > 0 and len(valid_images) > 0 and len(test_images) > 0
     
     def process(self):
-        """Main preprocessing pipeline."""
+        """Main preprocessing pipeline with letterbox resize."""
         print("=" * 80)
-        print("DETECTION DATASET PREPROCESSING")
+        print("DETECTION DATASET PREPROCESSING (WITH LETTERBOX)")
         print("=" * 80)
         
-        # Load training data
-        print("\n[1/5] Loading training data...")
-        train_images, train_annotations = self._load_split_data('train')
-        print(f"  Loaded {len(train_images)} training images")
+        # Step 1: Load all data using streaming approach
+        print("\n[1/5] Loading all data (streaming mode)...")
+        all_images, all_annotations = self._load_all_data_streaming()
+        print(f"  Loaded {len(all_images)} total images")
+        gc.collect()
         
-        # Load validation data
-        print("\n[2/5] Loading validation data...")
-        val_images, val_annotations = self._load_split_data('val')
-        print(f"  Loaded {len(val_images)} validation images")
-        
-        # Combine and split into train/val/test
-        print("\n[3/5] Combining and splitting dataset (70/20/10)...")
-        all_images = train_images + val_images
-        all_annotations = train_annotations + val_annotations
+        # Step 2: Split dataset
+        print("\n[2/5] Splitting dataset (70/20/10)...")
         splits = self._split_dataset(all_images, all_annotations)
         
-        # Preprocess images and annotations
-        print("\n[4/5] Preprocessing images and annotations...")
-        processed_splits = {}
-        for split_name in ['train', 'valid', 'test']:
-            print(f"  Processing {split_name} split...")
-            X, y = self._preprocess_data(
-                splits[f'{split_name}_images'], 
-                splits[f'{split_name}_annotations']
-            )
-            processed_splits[f'X_{split_name}'] = X
-            processed_splits[f'y_{split_name}'] = y
-            print(f"    {split_name}: X={X.shape}, y={len(y)} samples")
+        # Clear original data to free memory
+        del all_images, all_annotations
+        gc.collect()
         
-        # Save processed data
-        print("\n[5/5] Saving processed data...")
-        self._save_splits(processed_splits)
+        # Step 3: Save split metadata
+        print("\n[3/5] Saving split metadata...")
+        self._save_splits(splits)
+        
+        # Step 4: Process and save each split as individual image files
+        processed_info = {}
+        
+        # Map split names to match the keys from _split_dataset
+        split_mapping = {
+            'train': 'train',
+            'valid': 'val',  # Map 'valid' to 'val' to match _split_dataset output
+            'test': 'test'
+        }
+        
+        for idx, split_name in enumerate(['train', 'valid', 'test']):
+            step_num = idx + 4
+            print(f"\n[{step_num}/5] Processing {split_name} split...")
+            
+            # Get the correct key name from splits dictionary
+            split_key = split_mapping[split_name]
+            image_paths = splits[f'{split_key}_images']
+            annotations = splits[f'{split_key}_annotations']
+            
+            # Process and save images
+            saved_count = self._preprocess_and_save_split(
+                image_paths, 
+                annotations, 
+                split_name  # Use 'valid' for directory naming
+            )
+            
+            processed_info[split_name] = {
+                'count': saved_count,
+                'image_dir': str(self.processed_dir / split_name),
+                'annotation_dir': str(self.processed_dir / 'annotations' / split_name)
+            }
+            
+            print(f"    Saved {saved_count} images to {self.processed_dir / split_name}")
+            
+            # Clear memory after each split
+            del splits[f'{split_key}_images'], splits[f'{split_key}_annotations']
+            gc.collect()
+        
+        # Save overall metadata
+        print("\n[5/5] Saving processing metadata...")
+        self._save_processing_metadata(processed_info)
         
         print("\n" + "=" * 80)
         print("PREPROCESSING COMPLETE")
         print("=" * 80)
-        print(f"Output directory: {self.processed_dir}")
-        total_samples = sum(processed_splits[f'X_{split}'].shape[0] for split in ['train', 'valid', 'test'])
+        print(f"Processed images: {self.processed_dir}")
+        print(f"Split metadata: {self.splitting_dir}")
+        total_samples = sum(info['count'] for info in processed_info.values())
         print(f"Total samples: {total_samples}")
-        print(f"  Train: {processed_splits['X_train'].shape[0]}")
-        print(f"  Valid: {processed_splits['X_valid'].shape[0]}")
-        print(f"  Test: {processed_splits['X_test'].shape[0]}")
-    
-    def _load_split_data(self, split: str) -> Tuple[List[str], List[List]]:
+        for split_name, info in processed_info.items():
+            print(f"  {split_name.capitalize()}: {info['count']} images")
+
+    def _load_all_data_streaming(self) -> Tuple[List[str], List[List]]:
         """
-        Load images and annotations for a specific split (train or val).
+        Load all image paths and annotations using streaming approach.
+        Processes train and val sequentially to minimize memory usage.
+        
+        Returns:
+            Tuple of (image_paths, annotations)
+        """
+        all_images = []
+        all_annotations = []
+        
+        # Process train split
+        print("  Loading train data...")
+        train_images, train_annotations = self._load_split_data_generator('train')
+        all_images.extend(train_images)
+        all_annotations.extend(train_annotations)
+        print(f"    Train: {len(train_images)} images")
+        
+        # Clear train data from memory
+        del train_images, train_annotations
+        gc.collect()
+        
+        # Process val split
+        print("  Loading val data...")
+        val_images, val_annotations = self._load_split_data_generator('val')
+        all_images.extend(val_images)
+        all_annotations.extend(val_annotations)
+        print(f"    Val: {len(val_images)} images")
+        
+        # Clear val data from memory
+        del val_images, val_annotations
+        gc.collect()
+        
+        return all_images, all_annotations
+    
+    def _load_split_data_generator(self, split: str) -> Tuple[List[str], List[List]]:
+        """
+        Load image paths and annotations for a specific split (train or val).
         
         Args:
             split: 'train' or 'val'
@@ -153,78 +231,18 @@ class DetectionPreprocessor:
                     if not line:
                         continue
                     parts = line.split()
-                    if len(parts) >= 5:
-                        # YOLO format: class x_center y_center width height (normalized)
-                        class_id, x_c, y_c, w, h = map(float, parts[:5])
-                        bboxes.append([int(class_id), x_c, y_c, w, h])
+                    if len(parts) == 5:
+                        class_id = int(parts[0])
+                        x_center = float(parts[1])
+                        y_center = float(parts[2])
+                        width = float(parts[3])
+                        height = float(parts[4])
+                        bboxes.append([class_id, x_center, y_center, width, height])
             
             images.append(str(img_file))
             annotations.append(bboxes)
         
         return images, annotations
-    
-    def _preprocess_data(self, images: List[str], annotations: List[List]) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Preprocess images and annotations.
-        
-        Args:
-            images: List of image paths
-            annotations: List of bounding box lists (each bbox: [class, x_c, y_c, w, h])
-            
-        Returns:
-            Tuple of (images_array, annotations_array)
-        """
-        X_list = []
-        y_list = []
-        
-        for img_path, bboxes in tqdm(zip(images, annotations), total=len(images), desc="Processing"):
-            try:
-                # Load and resize image
-                img = cv2.imread(str(img_path))
-                if img is None:
-                    continue
-                
-                original_h, original_w = img.shape[:2]
-                
-                # Resize to target size
-                img_resized = cv2.resize(img, (self.image_size, self.image_size))
-                
-                # Normalize to [0, 1]
-                img_normalized = img_resized.astype(np.float32) / 255.0
-                
-                # Convert BGR to RGB
-                img_rgb = cv2.cvtColor(img_normalized, cv2.COLOR_BGR2RGB)
-                
-                # Process annotations - scale bounding boxes to match resized image
-                scaled_bboxes = []
-                for bbox in bboxes:
-                    class_id, x_c, y_c, w, h = bbox
-                    # Scale normalized coordinates to image size
-                    x_c_scaled = x_c * self.image_size
-                    y_c_scaled = y_c * self.image_size
-                    w_scaled = w * self.image_size
-                    h_scaled = h * self.image_size
-                    scaled_bboxes.append([class_id, x_c_scaled, y_c_scaled, w_scaled, h_scaled])
-                
-                X_list.append(img_rgb)
-                y_list.append(scaled_bboxes if scaled_bboxes else [])
-                
-            except Exception as e:
-                print(f"Warning: Error processing {img_path}: {e}")
-                continue
-        
-        # Convert to numpy arrays
-        X = np.array(X_list)
-        
-        # For y, save as object array since each image can have different number of boxes
-        y = np.empty(len(y_list), dtype=object)
-        for i, bboxes in enumerate(y_list):
-            if bboxes:
-                y[i] = np.array(bboxes, dtype=np.float32)
-            else:
-                y[i] = np.array([]).reshape(0, 5).astype(np.float32)
-        
-        return X, y
     
     def _split_dataset(self, images: List[str], annotations: List[List]) -> Dict[str, List]:
         """
@@ -249,64 +267,257 @@ class DetectionPreprocessor:
             images, annotations, test_size=test_ratio, random_state=42
         )
         
-        # Second split: separate train and validation
-        val_ratio_adjusted = val_ratio / (train_ratio + val_ratio)
-        X_train, X_valid, y_train, y_valid = train_test_split(
-            X_temp, y_temp, test_size=val_ratio_adjusted, random_state=42
+        # Second split: separate train and validation from remaining
+        val_adjusted = val_ratio / (train_ratio + val_ratio)
+        X_train, X_val, y_train, y_val = train_test_split(
+            X_temp, y_temp, test_size=val_adjusted, random_state=42
         )
         
         return {
             'train_images': X_train,
-            'valid_images': X_valid,
-            'test_images': X_test,
             'train_annotations': y_train,
-            'valid_annotations': y_valid,
+            'val_images': X_val,
+            'val_annotations': y_val,
+            'test_images': X_test,
             'test_annotations': y_test
         }
     
-    def _save_splits(self, splits: Dict[str, np.ndarray]):
-        """Save split datasets to disk."""
-        for key, data in splits.items():
-            filepath = self.processed_dir / f"{key}.npy"
-            np.save(filepath, data, allow_pickle=True)
-        
-        # Save metadata
-        metadata = {
-            'total_samples': sum(splits[f'X_{split}'].shape[0] for split in ['train', 'valid', 'test']),
-            'train_samples': int(splits['X_train'].shape[0]),
-            'valid_samples': int(splits['X_valid'].shape[0]),
-            'test_samples': int(splits['X_test'].shape[0]),
-            'image_size': self.image_size,
-            'split_ratios': {
-                'train': self.config['datasets']['detection']['train_ratio'],
-                'valid': self.config['datasets']['detection']['val_ratio'],
-                'test': 1 - self.config['datasets']['detection']['train_ratio'] - self.config['datasets']['detection']['val_ratio']
-            },
-            'annotation_format': 'YOLO (class, x_center, y_center, width, height)',
-            'coordinate_system': 'Absolute pixel coordinates after resizing'
-        }
-        
-        with open(self.processed_dir / "metadata.json", 'w') as f:
-            json.dump(metadata, f, indent=2)
-    
-    def load_split(self, split_name: str = 'train') -> Tuple[np.ndarray, np.ndarray]:
+    def _save_splits(self, splits: Dict[str, List]):
         """
-        Load a specific data split.
+        Save split metadata as JSON files to data/splitting/detection_split/.
         
         Args:
+            splits: Dictionary containing split data
+        """
+        # Save each split as JSON
+        for split_name in ['train', 'val', 'test']:
+            split_data = {
+                'images': splits[f'{split_name}_images'],
+                'annotations': splits[f'{split_name}_annotations']
+            }
+            output_file = self.splitting_dir / f"{split_name}_split.json"
+            with open(output_file, 'w') as f:
+                json.dump(split_data, f, indent=2)
+            print(f"  Saved {split_name} split: {len(split_data['images'])} images")
+        
+        # Save overall metadata
+        metadata = {
+            'dataset_type': 'detection',
+            'total_samples': len(splits['train_images']) + len(splits['val_images']) + len(splits['test_images']),
+            'splits': {
+                'train': len(splits['train_images']),
+                'val': len(splits['val_images']),
+                'test': len(splits['test_images'])
+            },
+            'format': 'YOLO',
+            'preprocessing': 'letterbox_resize',
+            'target_size': self.image_size,
+            'note': 'Images are preprocessed with letterbox resize and saved as individual files'
+        }
+        
+        metadata_file = self.splitting_dir / "metadata.json"
+        with open(metadata_file, 'w') as f:
+            json.dump(metadata, f, indent=2)
+        print(f"  Saved metadata")
+    
+    def _letterbox_resize(self, img: np.ndarray, bboxes: List, target_size: int = 640) -> Tuple[np.ndarray, List]:
+        """
+        Resize image with letterbox (preserve aspect ratio + padding).
+        
+        Args:
+            img: Original image (H, W, C)
+            bboxes: YOLO format bboxes [[class, x_c, y_c, w, h], ...]
+            target_size: Target size (default 640)
+        
+        Returns:
+            Resized image and adjusted bboxes
+        """
+        h, w = img.shape[:2]
+        
+        # Calculate scale ratio (keep aspect ratio)
+        scale = min(target_size / w, target_size / h)
+        
+        # Resize
+        new_w, new_h = int(w * scale), int(h * scale)
+        img_resized = cv2.resize(img, (new_w, new_h))
+        
+        # Calculate padding
+        pad_w = (target_size - new_w) / 2
+        pad_h = (target_size - new_h) / 2
+        
+        # Add padding (gray color for YOLO: 114, 114, 114)
+        top, bottom = int(round(pad_h - 0.1)), int(round(pad_h + 0.1))
+        left, right = int(round(pad_w - 0.1)), int(round(pad_w + 0.1))
+        img_padded = cv2.copyMakeBorder(
+            img_resized, top, bottom, left, right,
+            cv2.BORDER_CONSTANT, value=[114, 114, 114]
+        )
+        
+        # Adjust bounding boxes
+        adjusted_bboxes = []
+        for bbox in bboxes:
+            class_id, x_c, y_c, bw, bh = bbox
+            
+            # Scale coordinates
+            x_c_new = x_c * scale
+            y_c_new = y_c * scale
+            bw_new = bw * scale
+            bh_new = bh * scale
+            
+            # Add padding offset and normalize to padded image size
+            x_c_final = (x_c_new + pad_w) / target_size
+            y_c_final = (y_c_new + pad_h) / target_size
+            bw_final = bw_new / target_size
+            bh_final = bh_new / target_size
+            
+            adjusted_bboxes.append([class_id, x_c_final, y_c_final, bw_final, bh_final])
+        
+        return img_padded, adjusted_bboxes
+    
+    def _preprocess_and_save_split(self, images: List[str], annotations: List[List], split_name: str) -> int:
+        """
+        Preprocess images using letterbox resize and save as individual files.
+        Processes in batches to avoid memory issues.
+        
+        Args:
+            images: List of image paths
+            annotations: List of bounding box lists
             split_name: 'train', 'valid', or 'test'
             
         Returns:
-            Tuple of (X, y) arrays
+            Number of successfully processed images
         """
-        X = np.load(self.processed_dir / f"X_{split_name}.npy", allow_pickle=True)
-        y = np.load(self.processed_dir / f"y_{split_name}.npy", allow_pickle=True)
-        return X, y
+        output_img_dir = self.processed_dir / split_name
+        output_ann_dir = self.processed_dir / 'annotations' / split_name
+        
+        n_images = len(images)
+        batch_size = 100  # Process 100 images at a time
+        
+        n_batches = (n_images + batch_size - 1) // batch_size
+        print(f"  Processing {n_images} images in {n_batches} batches...")
+        
+        saved_count = 0
+        failed_images = []  # Track failed images
+        
+        for batch_idx in range(n_batches):
+            start_idx = batch_idx * batch_size
+            end_idx = min(start_idx + batch_size, n_images)
+            
+            for i in tqdm(range(start_idx, end_idx), desc=f"  Batch {batch_idx+1}/{n_batches}", leave=False):
+                img_path = images[i]
+                bboxes = annotations[i]
+                
+                try:
+                    # Load image with error handling for corrupt files
+                    # Suppress OpenCV warnings by redirecting stderr temporarily
+                    f = io.StringIO()
+                    with contextlib.redirect_stderr(f):
+                        img = cv2.imread(str(img_path))
+                    
+                    if img is None:
+                        failed_images.append(img_path)
+                        continue
+                    
+                    # Apply letterbox resize
+                    img_processed, bboxes_processed = self._letterbox_resize(
+                        img, bboxes, self.image_size
+                    )
+                    
+                    # Generate output filename
+                    img_filename = f"img_{saved_count:05d}.jpg"
+                    ann_filename = f"img_{saved_count:05d}.txt"
+                    
+                    # Save processed image
+                    output_img_path = output_img_dir / img_filename
+                    cv2.imwrite(str(output_img_path), img_processed)
+                    
+                    # Save annotations in YOLO format
+                    output_ann_path = output_ann_dir / ann_filename
+                    with open(output_ann_path, 'w') as f:
+                        for bbox in bboxes_processed:
+                            class_id, x_c, y_c, w, h = bbox
+                            f.write(f"{class_id} {x_c:.6f} {y_c:.6f} {w:.6f} {h:.6f}\n")
+                    
+                    saved_count += 1
+                    
+                    # Clear memory for this image
+                    del img, img_processed, bboxes_processed
+                    gc.collect()
+                    
+                except Exception as e:
+                    failed_images.append(img_path)
+                    continue
+            
+            # Clear batch memory
+            gc.collect()
+        
+        # Report failed images
+        if failed_images:
+            print(f"\n  ⚠ Warning: {len(failed_images)} images failed to process:")
+            for img_path in failed_images[:10]:  # Show first 10
+                print(f"    - {img_path}")
+            if len(failed_images) > 10:
+                print(f"    ... and {len(failed_images) - 10} more")
+            
+            # Save failed images list to file
+            failed_log = self.processed_dir / f"failed_{split_name}_images.txt"
+            with open(failed_log, 'w') as f:
+                for img_path in failed_images:
+                    f.write(f"{img_path}\n")
+            print(f"  Full list saved to: {failed_log}")
+        
+        return saved_count
+    
+    def _save_processing_metadata(self, processed_info: Dict):
+        """
+        Save metadata about the preprocessing results.
+        
+        Args:
+            processed_info: Dictionary with processing statistics
+        """
+        metadata = {
+            'dataset_type': 'detection',
+            'image_size': self.image_size,
+            'preprocessing_method': 'letterbox_resize',
+            'padding_color': [114, 114, 114],
+            'output_format': 'individual_jpeg_files',
+            'splits': {
+                split_name: {
+                    'count': info['count'],
+                    'image_directory': info['image_dir'],
+                    'annotation_directory': info['annotation_dir']
+                }
+                for split_name, info in processed_info.items()
+            },
+            'total_samples': sum(info['count'] for info in processed_info.values()),
+            'note': 'Images are saved as individual JPEG files with corresponding YOLO annotations'
+        }
+        
+        metadata_file = self.processed_dir / "metadata.json"
+        with open(metadata_file, 'w') as f:
+            json.dump(metadata, f, indent=2)
+        print(f"  Saved metadata to {metadata_file}")
+
+
+def main():
+    """Main function to run detection dataset preprocessing."""
+    preprocessor = DetectionPreprocessor()
+    
+    if preprocessor.is_processed():
+        print("✓ Detection dataset already preprocessed.")
+        print(f"  Output directory: {preprocessor.processed_dir}")
+        print("  Auto-overwriting existing files...")
+        # Automatically proceed without asking
+    
+    try:
+        preprocessor.process()
+        print("\n✓ Preprocessing complete! You can now run experiments.")
+    except Exception as e:
+        print(f"\n✗ Error during preprocessing: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
 
 
 if __name__ == "__main__":
-    preprocessor = DetectionPreprocessor()
-    if not preprocessor.is_processed():
-        preprocessor.process()
-    else:
-        print("Data already preprocessed. Skipping.")
+    main()
