@@ -1,3 +1,6 @@
+# Data directory - will be compressed to zip and committed separately
+data/
+
 # Python
 __pycache__/
 *.py[cod]
@@ -6,25 +9,15 @@ __pycache__/
 .Python
 build/
 develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
 *.egg-info/
-.installed.cfg
+dist/
 *.egg
 
 # Virtual environments
 venv/
 env/
 ENV/
-.venv
+.venv/
 
 # IDE
 .vscode/
@@ -33,29 +26,17 @@ ENV/
 *.swo
 *~
 
-# Jupyter Notebooks
-.ipynb_checkpoints
-
-# Data (keep structure but not raw data)
-data/raw/*
-!data/raw/.gitkeep
-data/processed/*.npy
-!data/processed/.gitkeep
-
-# Outputs (keep structure but not model files)
-outputs/*/run_*/model/*.pt
-outputs/*/run_*/model/*.pth
-outputs/*/run_*/figures/*.png
-outputs/*/run_*/logs/*.csv
-!outputs/.gitkeep
-
-# Logs
-*.log
+# Jupyter Notebook
+.ipynb_checkpoints/
 
 # OS
 .DS_Store
 Thumbs.db
 
+# Logs
+*.log
+preprocessing_log.txt
+
 # Temporary files
 *.tmp
-temp/
+*.temp
