@@ -246,10 +246,19 @@ class DetectionPreprocessor:
     
     def _split_dataset(self, images: List[str], annotations: List[List]) -> Dict[str, List]:
         """
-        Split combined dataset into train/valid/test sets.
+        Split dataset respecting original train/val structure.
+        
+        Strategy (Option A):
+        - Original val_img (230 images) → valid set (kept as-is)
+        - Original train_img (5924 images) → split into train (90%) and test (10%)
+          - train: ~5332 images
+          - test: ~592 images
+        
+        This preserves the original professional train/val split while creating
+        a proper test set from the training data.
         
         Args:
-            images: List of all image paths
+            images: List of all image paths (train first, then val)
             annotations: List of all annotations
             
         Returns:
@@ -257,21 +266,40 @@ class DetectionPreprocessor:
         """
         from sklearn.model_selection import train_test_split
         
-        n_samples = len(images)
-        train_ratio = self.config['datasets']['detection']['train_ratio']
-        val_ratio = self.config['datasets']['detection']['val_ratio']
-        test_ratio = 1 - train_ratio - val_ratio
+        # Separate train and val based on path
+        train_images = []
+        train_annotations = []
+        val_images = []
+        val_annotations = []
         
-        # First split: separate test set
-        X_temp, X_test, y_temp, y_test = train_test_split(
-            images, annotations, test_size=test_ratio, random_state=42
+        for img_path, ann in zip(images, annotations):
+            if '/train_img/' in img_path or '\\train_img\\' in img_path:
+                train_images.append(img_path)
+                train_annotations.append(ann)
+            elif '/val_img/' in img_path or '\\val_img\\' in img_path:
+                val_images.append(img_path)
+                val_annotations.append(ann)
+        
+        print(f"  Original train: {len(train_images)} images")
+        print(f"  Original val: {len(val_images)} images")
+        
+        # Use original val as validation set (no splitting)
+        X_val = val_images
+        y_val = val_annotations
+        
+        # Split original train into train (90%) and test (10%)
+        test_ratio = 0.10  # 10% for test
+        X_train, X_test, y_train, y_test = train_test_split(
+            train_images, 
+            train_annotations, 
+            test_size=test_ratio, 
+            random_state=42
         )
         
-        # Second split: separate train and validation from remaining
-        val_adjusted = val_ratio / (train_ratio + val_ratio)
-        X_train, X_val, y_train, y_val = train_test_split(
-            X_temp, y_temp, test_size=val_adjusted, random_state=42
-        )
+        print(f"  After splitting:")
+        print(f"    Train: {len(X_train)} images (from original train)")
+        print(f"    Valid: {len(X_val)} images (original val, kept as-is)")
+        print(f"    Test: {len(X_test)} images (from original train)")
         
         return {
             'train_images': X_train,
@@ -294,24 +322,43 @@ class DetectionPreprocessor:
         """
         # Save each split as JSON with original image paths (for reference only)
         for split_name in ['train', 'val', 'test']:
+            # Determine source of this split
+            if split_name == 'val':
+                source_info = "Original val_img folder (kept as-is)"
+            elif split_name == 'train':
+                source_info = "From original train_img folder (90% split)"
+            else:  # test
+                source_info = "From original train_img folder (10% split)"
+            
             split_data = {
                 'original_image_paths': splits[f'{split_name}_images'],
                 'num_samples': len(splits[f'{split_name}_images']),
+                'source': source_info,
                 'note': f'Original raw image paths. Processed images are in data/processed/detection/{split_name if split_name != "val" else "valid"}/'
             }
             output_file = self.splitting_dir / f"{split_name}_split.json"
             with open(output_file, 'w') as f:
                 json.dump(split_data, f, indent=2)
-            print(f"  Saved {split_name} split: {len(split_data['original_image_paths'])} images")
+            print(f"  Saved {split_name} split: {len(split_data['original_image_paths'])} images ({source_info})")
         
         # Save overall metadata
         metadata = {
             'dataset_type': 'detection',
             'total_samples': len(splits['train_images']) + len(splits['val_images']) + len(splits['test_images']),
+            'split_strategy': 'Option A: Preserve original val, split train into train/test',
             'splits': {
-                'train': len(splits['train_images']),
-                'val': len(splits['val_images']),
-                'test': len(splits['test_images'])
+                'train': {
+                    'count': len(splits['train_images']),
+                    'source': 'train_img (90%)'
+                },
+                'val': {
+                    'count': len(splits['val_images']),
+                    'source': 'val_img (100%, kept as-is)'
+                },
+                'test': {
+                    'count': len(splits['test_images']),
+                    'source': 'train_img (10%)'
+                }
             },
             'format': 'YOLO',
             'preprocessing': 'letterbox_resize',
