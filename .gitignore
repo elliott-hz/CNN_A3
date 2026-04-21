@@ -1,6 +1,5 @@
-# Data directory - will be compressed to zip and committed separately
+# Data directory - too large to commit, manage separately
 data/
-!data/*.zip
 
 # Python
 __pycache__/

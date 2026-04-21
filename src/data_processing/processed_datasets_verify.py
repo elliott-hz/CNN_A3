@@ -76,7 +76,7 @@ def _check_detection_dataset(processed_dir: Path, split_dir: Path) -> bool:
     Returns:
         True if dataset is complete, False otherwise
     """
-    # Check processed image directories
+    # Check processed image directories (with letterbox padding)
     required_dirs = ['train', 'valid', 'test']
     annotation_dirs = ['annotations/train', 'annotations/valid', 'annotations/test']
     
@@ -98,7 +98,7 @@ def _check_detection_dataset(processed_dir: Path, split_dir: Path) -> bool:
     
     for split_name in required_dirs:
         img_dir = processed_dir / split_name
-        images = list(img_dir.glob('*.jpg'))
+        images = list(img_dir.glob('*.jpg')) + list(img_dir.glob('*.png'))
         count = len(images)
         split_counts[split_name] = count
         total_images += count
