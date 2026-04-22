@@ -61,7 +61,7 @@ def main():
     logger.info(f"Classes: {dataset_config['nc']} ({dataset_config['names']})")
     
     # Step 2: Initialize model and trainer
-    logger.info("\n[Step 3/5] Initializing model and trainer...")
+    logger.info("[Step 3/5] Initializing model and trainer...")
     
     # Use baseline configuration
     model_config = BASELINE_DETECTION_CONFIG.copy()
