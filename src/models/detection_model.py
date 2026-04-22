@@ -87,7 +87,9 @@ class YOLOv8Detector(nn.Module):
         
         return self.model(x, conf=conf, iou=iou, verbose=False)
     
-    def train_model(self, data, epochs=100, imgsz=None, **kwargs):
+    def train_model(self, data, epochs=100, imgsz=None, 
+                    optimizer=None, scheduler=None, warmup_epochs=None,
+                    **kwargs):
         """
         Train the model on given data.
         
@@ -95,6 +97,9 @@ class YOLOv8Detector(nn.Module):
             data: Dataset configuration or path
             epochs: Number of training epochs
             imgsz: Image size (uses default if None)
+            optimizer: Optimizer type ('SGD', 'Adam', 'AdamW')
+            scheduler: Learning rate scheduler ('CosineLR', 'StepLR', etc.)
+            warmup_epochs: Number of warmup epochs
             **kwargs: Additional training arguments
             
         Returns:
@@ -111,6 +116,20 @@ class YOLOv8Detector(nn.Module):
             'conf': self.confidence_threshold,
             'iou': self.nms_iou_threshold,
         }
+        
+        # Add optional parameters if provided
+        if optimizer is not None:
+            train_args['optimizer'] = optimizer  # 'SGD', 'Adam', 'AdamW'
+        if scheduler is not None:
+            # Map our scheduler names to YOLOv8 format
+            scheduler_map = {
+                'cosine': 'CosineLR',
+                'step': 'StepLR',
+                'reduce_on_plateau': 'ReduceLROnPlateau'
+            }
+            train_args['lr_scheduler'] = scheduler_map.get(scheduler, scheduler)
+        if warmup_epochs is not None:
+            train_args['warmup_epochs'] = warmup_epochs
         
         # Update with any additional kwargs
         train_args.update(kwargs)

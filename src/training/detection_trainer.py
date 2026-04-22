@@ -96,6 +96,16 @@ class DetectionTrainer:
         # Prepare data paths (assuming data is in YOLO format)
         # This is a simplified version - adapt based on your data structure
         
+        # Check if there's a previous checkpoint to resume from
+        last_checkpoint = model_dir / "last.pt"
+        resume_training = last_checkpoint.exists()
+        
+        if resume_training:
+            print(f"\n✓ Found previous checkpoint: {last_checkpoint}")
+            print("  Resuming training from last checkpoint...")
+        else:
+            print("\n  Starting fresh training...")
+        
         try:
             # Train using YOLO's built-in training
             results = model.train_model(
@@ -107,9 +117,13 @@ class DetectionTrainer:
                 weight_decay=self.weight_decay,
                 patience=self.patience,
                 amp=self.use_amp,
+                optimizer=self.optimizer_type.upper(),  # Pass optimizer type
+                scheduler=self.scheduler_type,          # Pass scheduler type
+                warmup_epochs=self.warmup_epochs,       # Pass warmup epochs
                 name="detection_training",
                 project=str(output_dir),
-                exist_ok=True
+                exist_ok=True,
+                resume=resume_training  # Enable resume if checkpoint exists
             )
             
             print("\n" + "=" * 80)

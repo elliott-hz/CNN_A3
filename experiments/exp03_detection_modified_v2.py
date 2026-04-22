@@ -93,10 +93,22 @@ def main():
         logger.error(f"Training failed: {e}")
         import traceback
         traceback.print_exc()
-        return
+        sys.exit(1)
     
     # Step 5: Evaluate model
     logger.info("\n[Step 5/5] Evaluating model on test set...")
+    
+    # Reload best model weights for evaluation
+    best_model_path = output_dir / "model" / "best_model.pt"
+    if best_model_path.exists():
+        logger.info(f"Reloading best model weights from: {best_model_path}")
+        from ultralytics import YOLO
+        best_yolo_model = YOLO(str(best_model_path))
+        model.model = best_yolo_model  # Replace internal model
+        logger.info("Best model loaded successfully")
+    else:
+        logger.warning("Best model file not found, using current model state")
+    
     evaluator = DetectionEvaluator()
     
     try:
@@ -117,6 +129,7 @@ def main():
         logger.error(f"Evaluation failed: {e}")
         import traceback
         traceback.print_exc()
+        sys.exit(1)
 
 
 if __name__ == "__main__":

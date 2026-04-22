@@ -55,7 +55,7 @@ def main():
     logger.info(f"Classes: {dataset_config['nc']} ({dataset_config['names']})")
     
     # Step 3: Initialize model and trainer
-    logger.info("\n[Step 4/5] Initializing model and trainer...")
+    logger.info("\n[Step 3/5] Initializing model and trainer...")
     
     # Use modified v1 configuration
     model_config = MODIFIED_V1_DETECTION_CONFIG.copy()
@@ -68,7 +68,7 @@ def main():
         'weight_decay': 1e-4,
         'early_stopping_patience': 12,
         'use_amp': True,
-        'gradient_accumulation_steps': 2,  # Gradient accumulation
+        'gradient_accumulation_steps': 1,  # Set to 1 (not implemented in YOLOv8)
         'warmup_epochs': 5,
         'scheduler': 'cosine'
     }
@@ -101,10 +101,22 @@ def main():
         logger.error(f"Training failed: {e}")
         import traceback
         traceback.print_exc()
-        return
+        sys.exit(1)
     
     # Evaluate model
     logger.info("\n[Step 5/5] Evaluating model on test set...")
+    
+    # Reload best model weights for evaluation
+    best_model_path = output_dir / "model" / "best_model.pt"
+    if best_model_path.exists():
+        logger.info(f"Reloading best model weights from: {best_model_path}")
+        from ultralytics import YOLO
+        best_yolo_model = YOLO(str(best_model_path))
+        model.model = best_yolo_model  # Replace internal model
+        logger.info("Best model loaded successfully")
+    else:
+        logger.warning("Best model file not found, using current model state")
+    
     evaluator = DetectionEvaluator()
     
     try:
@@ -127,6 +139,7 @@ def main():
         logger.error(f"Evaluation failed: {e}")
         import traceback
         traceback.print_exc()
+        sys.exit(1)
 
 
 if __name__ == "__main__":
