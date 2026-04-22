@@ -23,7 +23,7 @@ def main():
     """Run Experiment 01: Detection Baseline."""
     
     # Configuration flag for using small subset
-    USE_SMALL_SUBSET = True  # Set to False to use full dataset
+    USE_SMALL_SUBSET = False  # Set to False to use full dataset
     
     # Setup
     experiment_name = "exp01_detection_baseline"
