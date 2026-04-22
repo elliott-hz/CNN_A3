@@ -97,6 +97,9 @@ class ClassificationTrainer:
         with open(model_dir / "model_config.json", 'w') as f:
             yaml.dump(self.model_config, f)
         
+        # Move model to device
+        model = model.to(self.device)
+        
         # Prepare data loaders
         train_loader = self._create_dataloader(X_train, y_train, train=True)
         val_loader = self._create_dataloader(X_valid, y_valid, train=False)
@@ -256,11 +259,13 @@ class ClassificationTrainer:
             
             # Mixed precision training
             if self.use_amp:
+                # Autocast for forward pass and loss calculation
                 with torch.cuda.amp.autocast():
                     outputs = model(inputs)
                     loss = criterion(outputs, targets)
                     loss = loss / self.grad_accum_steps
                 
+                # Backward pass with scaled loss
                 self.scaler.scale(loss).backward()
                 
                 # Gradient accumulation
@@ -318,6 +323,7 @@ class ClassificationTrainer:
                 targets = targets.to(self.device)
                 
                 if self.use_amp:
+                    # Autocast for validation forward pass and loss calculation
                     with torch.cuda.amp.autocast():
                         outputs = model(inputs)
                         loss = criterion(outputs, targets)
