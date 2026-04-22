@@ -118,7 +118,7 @@ class DetectionTrainer:
                 optimizer=self.optimizer_type.upper(),  # Pass optimizer type
                 warmup_epochs=self.warmup_epochs,       # Pass warmup epochs
                 name="detection_training",
-                project=str(output_dir),
+                save_dir=str(output_dir),  # Use save_dir instead of project to avoid nested structure
                 exist_ok=True,
                 resume=resume_training  # Enable resume if checkpoint exists
             )
