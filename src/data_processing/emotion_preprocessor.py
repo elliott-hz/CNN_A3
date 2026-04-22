@@ -9,7 +9,7 @@ data/raw/emotion_dataset/
 ├── angry/      # Angry emotion images
 ├── frown/      # Frown emotion images
 ├── happy/      # Happy emotion images
-└── relax/      # Relaxed emotion images
+└── relax/      # Relax emotion images
 
 Each folder contains images (*.jpg) representing that emotion class.
 

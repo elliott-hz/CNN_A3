@@ -21,7 +21,7 @@ datasets:
     name: "dog_emotion"
     kaggle_dataset: "tongpython/dog-emotions-5-classes"
     image_size: 224
-    classes: ["angry", "happy", "relaxed", "frown", "alert"]
+    classes: ["angry", "happy", "relax", "frown", "alert"]
     train_ratio: 0.7
     val_ratio: 0.2
     test_ratio: 0.1

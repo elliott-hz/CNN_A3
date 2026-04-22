@@ -92,7 +92,8 @@ def main():
         return
     
     logger.info("\nEvaluating model...")
-    class_names = ['angry', 'happy', 'relaxed', 'frown', 'alert']
+    # Load class names from config
+    class_names = ['angry', 'happy', 'relax', 'frown', 'alert']
     evaluator = ClassificationEvaluator(class_names=class_names)
     
     try:

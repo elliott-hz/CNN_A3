@@ -27,7 +27,7 @@ class ClassificationEvaluator:
         Args:
             class_names: List of class names for reporting
         """
-        self.class_names = class_names or ['angry', 'happy', 'relaxed', 'frown', 'alert']
+        self.class_names = class_names or ['angry', 'happy', 'relax', 'frown', 'alert']
         self.metrics = {}
     
     def evaluate(self, model, X_test, y_test, output_dir: str):

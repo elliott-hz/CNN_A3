@@ -98,7 +98,8 @@ def main():
     
     # Evaluate model
     logger.info("\nEvaluating model on test set...")
-    class_names = ['angry', 'happy', 'relaxed', 'frown', 'alert']
+    # Load class names from config
+    class_names = ['angry', 'happy', 'relax', 'frown', 'alert']
     evaluator = ClassificationEvaluator(class_names=class_names)
     
     try:

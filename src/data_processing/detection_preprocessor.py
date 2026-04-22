@@ -83,13 +83,13 @@ class DetectionPreprocessor:
         print("=" * 80)
         
         # Step 1: Load all data using streaming approach
-        print("\n[1/5] Loading all data (streaming mode)...")
+        print("\n[1/6] Loading all data (streaming mode)...")
         all_images, all_annotations = self._load_all_data_streaming()
         print(f"  Loaded {len(all_images)} total images")
         gc.collect()
         
         # Step 2: Split dataset
-        print("\n[2/5] Splitting dataset (70/20/10)...")
+        print("\n[2/6] Splitting dataset (70/20/10)...")
         splits = self._split_dataset(all_images, all_annotations)
         
         # Clear original data to free memory
@@ -97,10 +97,10 @@ class DetectionPreprocessor:
         gc.collect()
         
         # Step 3: Save split metadata
-        print("\n[3/5] Saving split metadata...")
+        print("\n[3/6] Saving split metadata...")
         self._save_splits(splits)
         
-        # Step 4: Process and save each split as individual image files
+        # Step 4-6: Process and save each split as individual image files
         processed_info = {}
         
         # Map split names to match the keys from _split_dataset
@@ -111,8 +111,8 @@ class DetectionPreprocessor:
         }
         
         for idx, split_name in enumerate(['train', 'valid', 'test']):
-            step_num = idx + 4
-            print(f"\n[{step_num}/5] Processing {split_name} split...")
+            step_num = idx + 4  # Steps 4, 5, 6
+            print(f"\n[{step_num}/6] Processing {split_name} split...")
             
             # Get the correct key name from splits dictionary
             split_key = split_mapping[split_name]
@@ -139,7 +139,7 @@ class DetectionPreprocessor:
             gc.collect()
         
         # Save overall metadata
-        print("\n[5/5] Saving processing metadata...")
+        print("\n[6/6] Saving processing metadata...")
         self._save_processing_metadata(processed_info)
         
         print("\n" + "=" * 80)
@@ -467,13 +467,21 @@ class DetectionPreprocessor:
                 bboxes = annotations[i]
                 
                 try:
-                    # Load image with error handling for corrupt files
-                    # Suppress OpenCV warnings by redirecting stderr temporarily
-                    f = io.StringIO()
-                    with contextlib.redirect_stderr(f):
-                        img = cv2.imread(str(img_path))
+                    # Suppress OpenCV warnings by redirecting stderr
+                    import os
+                    old_stderr = os.dup(2)  # Save original stderr
+                    devnull = os.open(os.devnull, os.O_WRONLY)
+                    os.dup2(devnull, 2)  # Redirect stderr to /dev/null
+                    os.close(devnull)
                     
-                    if img is None:
+                    try:
+                        img = cv2.imread(str(img_path), cv2.IMREAD_COLOR)
+                    finally:
+                        # Restore stderr
+                        os.dup2(old_stderr, 2)
+                        os.close(old_stderr)
+                    
+                    if img is None or img.size == 0:
                         failed_images.append(img_path)
                         continue
                     
@@ -504,8 +512,7 @@ class DetectionPreprocessor:
                     gc.collect()
                     
                 except Exception as e:
-                    # Log the specific error for debugging
-                    print(f"\n  ⚠ Error processing image {img_path}: {str(e)}")
+                    # Log the specific error for debugging (to file only, not console)
                     failed_images.append(img_path)
                     # Ensure cleanup before continuing to next image
                     try:
@@ -572,18 +579,18 @@ class DetectionPreprocessor:
         """
         Generate YOLOv8 dataset configuration YAML file.
         This file is required for YOLOv8 training.
-        Uses relative paths for portability across different machines.
+        Uses relative paths from project root for portability across different machines.
         
         Args:
             processed_info: Dictionary with processing statistics
         """
-        # Use relative path ('.' means current directory where dataset.yaml is located)
-        # This makes the config portable across different machines
+        # Use the path relative to project root (already stored in config)
+        # Since processed_dir is 'data/processed/detection', we can use it directly
         yolo_config = {
-            'path': '.',           # Current directory (where dataset.yaml is located)
-            'train': 'train',      # Relative path to train images
-            'val': 'valid',        # Relative path to validation images
-            'test': 'test',        # Relative path to test images
+            'path': str(self.processed_dir),  # Already relative: 'data/processed/detection'
+            'train': 'train',                 # Relative to path
+            'val': 'valid',                   # Relative to path
+            'test': 'test',                   # Relative to path
             
             # Number of classes
             'nc': 1,
@@ -598,7 +605,7 @@ class DetectionPreprocessor:
             yaml.dump(yolo_config, f, default_flow_style=False, sort_keys=False)
         
         print(f"  ✓ Generated YOLOv8 dataset config: {config_file}")
-        print(f"    Using relative paths for portability")
+        print(f"    Using path: {yolo_config['path']}")
         print(f"    Classes: {yolo_config['nc']} ({yolo_config['names']})")
 
 def main():
