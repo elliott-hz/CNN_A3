@@ -6,6 +6,7 @@ Configuration: backbone='m', input_size=640, confidence=0.5
 """
 
 import sys
+import argparse
 from pathlib import Path
 
 # Add parent directory to path
@@ -22,8 +23,18 @@ import yaml
 def main():
     """Run Experiment 01: Detection Baseline."""
     
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Run Experiment 01: Detection Baseline')
+    parser.add_argument('--use-small-subset', action='store_true', 
+                        help='Use small subset for quick testing (default: False)')
+    parser.add_argument('--no-small-subset', action='store_false', dest='use_small_subset',
+                        help='Use full dataset instead of small subset')
+    parser.set_defaults(use_small_subset=False)  # Default to False (full dataset)
+    
+    args = parser.parse_args()
+    
     # Configuration flag for using small subset
-    USE_SMALL_SUBSET = True  # Set to False to use full dataset
+    USE_SMALL_SUBSET = args.use_small_subset
     
     # Setup
     experiment_name = "exp01_detection_baseline"
