@@ -221,4 +221,5 @@ def create_alexnet_model(config: Dict[str, Any] = None) -> AlexNetClassifier:
 STANDARD_ALEXNET_CONFIG = {
     'num_classes': 5,
     'dropout_rate': 0.5,
+    'freeze_backbone': False,  # Don't freeze backbone for AlexNet by default
 }
