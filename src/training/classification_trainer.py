@@ -224,8 +224,8 @@ class ClassificationTrainer:
             else:
                 self.early_stop_counter += 1
             
-            # Early stopping check
-            if self.early_stop_counter >= self.patience:
+            # Early stopping check - only apply if patience > 0
+            if self.patience > 0 and self.early_stop_counter >= self.patience:
                 print(f"\nEarly stopping triggered after {epoch+1} epochs")
                 break
             
