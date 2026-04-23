@@ -101,7 +101,7 @@ def main():
         'epochs': 120,            # Increased from 40 to 120
         'optimizer': 'sgd',       # SGD optimizer
         'weight_decay': 1e-4,
-        'early_stopping_patience': 15,  # Increased proportionally
+        'early_stopping_patience': 0,  # Increased proportionally
         'use_amp': True,
         'gradient_accumulation_steps': 1,
         'warmup_epochs': 10,      # Increased to 10% of total epochs
