@@ -129,10 +129,10 @@ def main():
     training_config = {
         'learning_rate': 0.001,
         'batch_size': 32,
-        'epochs': 120,  # Increased from 30 to 120
+        'epochs': 120,
         'optimizer': 'adam',
         'weight_decay': 1e-4,
-        'early_stopping_patience': 15,  # Increased to 15 for 120 epochs (12.5% of epochs)
+        'early_stopping_patience': 0,
         'use_amp': True,
         'gradient_accumulation_steps': 1,
         'label_smoothing': 0.1,
