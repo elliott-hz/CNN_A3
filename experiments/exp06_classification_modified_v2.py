@@ -132,7 +132,7 @@ def main():
         'epochs': 120,             # Increased from 25 to 120
         'optimizer': 'sgd',       # SGD with momentum
         'weight_decay': 1e-4,
-        'early_stopping_patience': 15,  # Increased to 15 for 120 epochs (12.5% of epochs)
+        'early_stopping_patience': 0,  # Increased to 15 for 120 epochs (12.5% of epochs)
         'use_amp': True,
         'gradient_accumulation_steps': 1,
         'label_smoothing': 0.05,  # Less smoothing
