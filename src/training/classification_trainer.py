@@ -222,10 +222,12 @@ class ClassificationTrainer:
                 model.save(str(best_model_path))
                 print(f"  ✓ New best model saved (Val Acc: {val_acc:.4f})")
             else:
-                self.early_stop_counter += 1
+                # Only increment counter if early stopping is enabled (patience > 0)
+                if self.patience > 0:
+                    self.early_stop_counter += 1
             
             # Early stopping check
-            if self.early_stop_counter >= self.patience:
+            if self.patience > 0 and self.early_stop_counter >= self.patience:
                 print(f"\nEarly stopping triggered after {epoch+1} epochs")
                 break
             
