@@ -9,6 +9,7 @@ import sys
 import argparse
 from pathlib import Path
 import glob
+import time
 
 # Add parent directory to path
 sys.path.append(str(Path(__file__).parent.parent))
