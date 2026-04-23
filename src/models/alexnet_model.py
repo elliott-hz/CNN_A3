@@ -34,6 +34,7 @@ class AlexNetClassifier(nn.Module):
         # Store configuration
         self.num_classes = config.get('num_classes', 5)
         self.dropout_rate = config.get('dropout_rate', 0.5)
+        self.freeze_backbone = config.get('freeze_backbone', False)
         
         # Define the AlexNet feature extractor (convolutional layers)
         self.features = nn.Sequential(
