@@ -99,7 +99,7 @@ def main():
     
     training_config = {
         'learning_rate': 0.0005,  # Lower learning rate for larger model
-        'batch_size': 8,          # Smaller batch due to larger model
+        'batch_size': 4,          # Smaller batch due to larger model
         'epochs': 120,            # Increased from 60 to 120
         'optimizer': 'adamw',     # AdamW optimizer
         'weight_decay': 1e-4,
