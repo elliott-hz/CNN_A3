@@ -119,7 +119,7 @@ const ImageUploader = ({ onResults }) => {
 
   return (
     <div className="image-uploader">
-      <h2>🐕 Dog Emotion Recognition</h2>
+      {/* <h2>🐕 Dog Emotion Recognition</h2> */}
       
       {/* Upload Area - Compact inline layout with auto-detection */}
       <div

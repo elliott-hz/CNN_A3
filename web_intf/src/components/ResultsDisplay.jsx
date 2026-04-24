@@ -122,7 +122,6 @@ const ResultsDisplay = ({ results, imagePreview }) => {
 
   return (
     <div className="results-display">
-      <h3>🎯 Detection Results</h3>
       
       {results.results.length === 0 ? (
         <div className="no-detection">
@@ -131,7 +130,7 @@ const ResultsDisplay = ({ results, imagePreview }) => {
         </div>
       ) : (
         <>
-          <p className="result-summary">{results.message}</p>
+          {/* <p className="result-summary">{results.message}</p> */}
           
           {/* Annotated Image with Bounding Boxes */}
           {imagePreview && (
