@@ -6,6 +6,7 @@ import os
 import json
 import torch
 import torch.nn as nn
+from torch.utils.data import DataLoader, TensorDataset
 from torch.cuda.amp import GradScaler, autocast
 import pandas as pd
 from tqdm import tqdm
@@ -13,6 +14,8 @@ from typing import Dict, Any, Tuple, List
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support, confusion_matrix
 import matplotlib.pyplot as plt
 import seaborn as sns
+import numpy as np
+from pathlib import Path
 
 from src.utils.logger import setup_logger
 from src.utils.googlenet_utils import compute_combined_loss
@@ -25,243 +28,352 @@ class GoogLeNetTrainer:
     Handles the complexity of training with auxiliary losses.
     """
     
-    def __init__(
-        self,
-        model: nn.Module,
-        train_loader,
-        val_loader,
-        config: Dict[str, Any],
-        device: torch.device = None
-    ):
+    def __init__(self, model_config: Dict[str, Any], training_config: Dict[str, Any]):
         """
         Initialize trainer for GoogLeNet with auxiliary classifiers.
         
         Args:
-            model: GoogLeNet model with auxiliary classifiers
-            train_loader: Training data loader
-            val_loader: Validation data loader
-            config: Training configuration dictionary
-            device: Device to train on
+            model_config: Model configuration dictionary
+            training_config: Training configuration dictionary
+                - learning_rate: Initial learning rate
+                - batch_size: Training batch size
+                - epochs: Number of epochs
+                - optimizer: Optimizer type ('sgd', 'adam', 'adamw')
+                - weight_decay: L2 regularization
+                - early_stopping_patience: Patience for early stopping
+                - use_amp: Enable mixed precision training
+                - gradient_accumulation_steps: Steps for gradient accumulation
+                - label_smoothing: Label smoothing epsilon
+                - class_weighting: Whether to use class weights
         """
-        self.model = model
-        self.train_loader = train_loader
-        self.val_loader = val_loader
-        self.config = config
-        self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.logger = setup_logger(config.get("experiment_name", "googlenet_training"))
+        self.model_config = model_config
+        self.training_config = training_config
         
-        # Move model to device
-        self.model.to(self.device)
+        # Extract training parameters
+        self.lr = training_config.get('learning_rate', 0.001)
+        self.batch_size = training_config.get('batch_size', 32)
+        self.epochs = training_config.get('epochs', 30)
+        self.optimizer_type = training_config.get('optimizer', 'adam')
+        self.weight_decay = training_config.get('weight_decay', 1e-4)
+        self.patience = training_config.get('early_stopping_patience', 0)
+        self.use_amp = training_config.get('use_amp', False)
+        self.grad_accum_steps = training_config.get('gradient_accumulation_steps', 1)
+        self.label_smoothing = training_config.get('label_smoothing', 0.0)
+        self.class_weighting = training_config.get('class_weighting', False)
         
-        # Initialize optimizer
-        optimizer_params = {
-            "lr": config.get("learning_rate", 1e-3),
-            "weight_decay": config.get("weight_decay", 1e-4)
-        }
-        
-        if config.get("optimizer", "sgd").lower() == "sgd":
-            self.optimizer = torch.optim.SGD(
-                self.model.parameters(),
-                **optimizer_params,
-                momentum=config.get("momentum", 0.9)
-            )
-        elif config.get("optimizer", "sgd").lower() == "adam":
-            self.optimizer = torch.optim.Adam(
-                self.model.parameters(),
-                **optimizer_params
-            )
-        else:
-            self.optimizer = torch.optim.AdamW(
-                self.model.parameters(),
-                **optimizer_params
-            )
-        
-        # Setup loss function
-        self.criterion = nn.CrossEntropyLoss(label_smoothing=config.get("label_smoothing", 0.0))
-        
-        # Setup metrics tracking
-        self.train_losses = []
-        self.val_losses = []
-        self.train_accuracies = []
-        self.val_accuracies = []
-        
-        # Early stopping parameters
-        self.early_stopping_patience = config.get("early_stopping_patience", 0)
-        self.early_stopping_counter = 0
-        self.best_val_loss = float('inf')
-        self.best_epoch = 0
-        
-        # Mixed precision training
-        self.use_amp = config.get("use_amp", False)
-        self.scaler = GradScaler() if self.use_amp else None
+        # Training state
+        self.training_history = []
+        self.best_val_acc = 0.0
+        self.early_stop_counter = 0
         
         # Auxiliary loss weights
-        self.main_weight = config.get("main_weight", 1.0)
-        self.aux1_weight = config.get("aux1_weight", 0.3)
-        self.aux2_weight = config.get("aux2_weight", 0.3)
+        self.main_weight = training_config.get("main_weight", 1.0)
+        self.aux1_weight = training_config.get("aux1_weight", 0.3)
+        self.aux2_weight = training_config.get("aux2_weight", 0.3)
+    
+    def _prepare_dataloaders(self, X_train, y_train, X_valid, y_valid):
+        """
+        Prepare PyTorch dataloaders from numpy arrays.
         
-    def train_epoch(self) -> float:
-        """Train for one epoch."""
-        self.model.train()
-        total_loss = 0.0
-        num_batches = 0
+        Args:
+            X_train: Training features
+            y_train: Training labels
+            X_valid: Validation features
+            y_valid: Validation labels
+            
+        Returns:
+            Tuple of (train_loader, val_loader)
+        """
+        # Convert to PyTorch tensors
+        X_train_tensor = torch.from_numpy(X_train).permute(0, 3, 1, 2).float()  # NHWC to NCHW
+        y_train_tensor = torch.from_numpy(y_train).long()
+        X_valid_tensor = torch.from_numpy(X_valid).permute(0, 3, 1, 2).float()
+        y_valid_tensor = torch.from_numpy(y_valid).long()
         
-        progress_bar = tqdm(self.train_loader, desc="Training")
-        for batch_idx, (data, targets) in enumerate(progress_bar):
-            data, targets = data.to(self.device), targets.to(self.device)
+        # Create datasets
+        train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
+        val_dataset = TensorDataset(X_valid_tensor, y_valid_tensor)
+        
+        # Create dataloaders
+        train_loader = DataLoader(
+            train_dataset,
+            batch_size=self.batch_size,
+            shuffle=True,
+            num_workers=2
+        )
+        val_loader = DataLoader(
+            val_dataset,
+            batch_size=self.batch_size,
+            shuffle=False,
+            num_workers=2
+        )
+        
+        return train_loader, val_loader
+    
+    def _setup_criterion(self, y_train):
+        """
+        Setup loss criterion based on training config.
+        
+        Args:
+            y_train: Training labels to calculate class weights if needed
             
-            self.optimizer.zero_grad()
+        Returns:
+            Initialized loss criterion
+        """
+        if self.class_weighting:
+            # Calculate class weights
+            from sklearn.utils.class_weight import compute_class_weight
+            classes = np.unique(y_train)
+            weights = compute_class_weight(
+                class_weight='balanced',
+                classes=classes,
+                y=y_train
+            )
+            weights = torch.FloatTensor(weights).to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+            criterion = nn.CrossEntropyLoss(weight=weights, label_smoothing=self.label_smoothing)
+        else:
+            criterion = nn.CrossEntropyLoss(label_smoothing=self.label_smoothing)
+        
+        return criterion
+    
+    def train(self, model, X_train, y_train, X_valid, y_valid, output_dir):
+        """
+        Train the model.
+        
+        Args:
+            model: Model to train
+            X_train: Training features
+            y_train: Training labels
+            X_valid: Validation features
+            y_valid: Validation labels
+            output_dir: Output directory for saving results
             
-            if self.use_amp:
-                with autocast():
-                    outputs = self.model(data)
+        Returns:
+            Training history
+        """
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        model.to(device)
+        
+        # Prepare data loaders
+        train_loader, val_loader = self._prepare_dataloaders(X_train, y_train, X_valid, y_valid)
+        
+        # Setup loss criterion
+        criterion = self._setup_criterion(y_train)
+        
+        # Setup optimizer
+        optimizer = model.get_optimizer(
+            lr=self.lr,
+            weight_decay=self.weight_decay,
+            optimizer_type=self.optimizer_type
+        )
+        
+        # Setup scaler for mixed precision
+        scaler = torch.cuda.amp.GradScaler() if self.use_amp else None
+        
+        # Create output directories
+        model_dir = Path(output_dir) / "models"
+        log_dir = Path(output_dir) / "logs"
+        model_dir.mkdir(parents=True, exist_ok=True)
+        log_dir.mkdir(parents=True, exist_ok=True)
+        
+        print("=" * 80)
+        print("STARTING TRAINING")
+        print("=" * 80)
+        print(f"Device: {device}")
+        print(f"Training samples: {len(X_train)}, Validation samples: {len(X_valid)}")
+        print(f"Learning rate: {self.lr}, Batch size: {self.batch_size}, Epochs: {self.epochs}")
+        print(f"Optimizer: {self.optimizer_type}, Weight decay: {self.weight_decay}")
+        print(f"Mixed precision: {self.use_amp}, Class weighting: {self.class_weighting}")
+        print(f"Auxiliary weights - Main: {self.main_weight}, Aux1: {self.aux1_weight}, Aux2: {self.aux2_weight}")
+        print("=" * 80)
+        
+        # Main training loop
+        for epoch in range(self.epochs):
+            # Training
+            model.train()
+            train_loss, train_acc = 0.0, 0.0
+            num_batches = 0
+            
+            train_pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{self.epochs} [Train]")
+            for batch_idx, (data, target) in enumerate(train_pbar):
+                data, target = data.to(device), target.to(device)
+                
+                optimizer.zero_grad()
+                
+                if self.use_amp and scaler is not None:
+                    with autocast():
+                        outputs = model(data)
+                        if isinstance(outputs, tuple):
+                            main_output, aux1_output, aux2_output = outputs
+                            loss, _, _, _ = compute_combined_loss(
+                                main_output, aux1_output, aux2_output, target, 
+                                criterion, self.main_weight, self.aux1_weight, self.aux2_weight
+                            )
+                        else:
+                            loss = criterion(outputs, target)
+                    
+                    scaler.scale(loss).backward()
+                    scaler.step(optimizer)
+                    scaler.update()
+                else:
+                    outputs = model(data)
                     if isinstance(outputs, tuple):
                         main_output, aux1_output, aux2_output = outputs
                         loss, _, _, _ = compute_combined_loss(
-                            main_output, aux1_output, aux2_output, targets, 
-                            self.criterion, self.main_weight, self.aux1_weight, self.aux2_weight
+                            main_output, aux1_output, aux2_output, target, 
+                            criterion, self.main_weight, self.aux1_weight, self.aux2_weight
                         )
                     else:
-                        # Fallback for models without auxiliary classifiers
-                        outputs = self.model(data)
-                        loss = self.criterion(outputs, targets)
+                        loss = criterion(outputs, target)
+                    
+                    loss.backward()
+                    optimizer.step()
                 
-                self.scaler.scale(loss).backward()
-                self.scaler.step(self.optimizer)
-                self.scaler.update()
-            else:
-                outputs = self.model(data)
-                if isinstance(outputs, tuple):
-                    main_output, aux1_output, aux2_output = outputs
-                    loss, _, _, _ = compute_combined_loss(
-                        main_output, aux1_output, aux2_output, targets, 
-                        self.criterion, self.main_weight, self.aux1_weight, self.aux2_weight
-                    )
-                else:
-                    # Fallback for models without auxiliary classifiers
-                    outputs = self.model(data)
-                    loss = self.criterion(outputs, targets)
+                # Calculate accuracy
+                with torch.no_grad():
+                    if isinstance(outputs, tuple):
+                        main_output = outputs[0]  # Use main output for accuracy calculation
+                    acc = (main_output.argmax(dim=1) == target).float().mean()
                 
-                loss.backward()
-                self.optimizer.step()
+                train_loss += loss.item()
+                train_acc += acc.item()
+                num_batches += 1
+                
+                # Update progress bar
+                train_pbar.set_postfix({
+                    'Loss': f'{loss.item():.4f}',
+                    'Acc': f'{acc.item():.4f}'
+                })
             
-            total_loss += loss.item()
-            num_batches += 1
+            avg_train_loss = train_loss / num_batches
+            avg_train_acc = train_acc / num_batches
             
-            # Update progress bar
-            progress_bar.set_postfix({"Loss": f"{loss.item():.4f}"})
-        
-        avg_loss = total_loss / num_batches
-        self.train_losses.append(avg_loss)
-        
-        return avg_loss
-    
-    def validate(self) -> Tuple[float, float]:
-        """Validate the model."""
-        self.model.eval()
-        total_loss = 0.0
-        all_preds = []
-        all_targets = []
-        num_batches = 0
-        
-        with torch.no_grad():
-            for data, targets in tqdm(self.val_loader, desc="Validating"):
-                data, targets = data.to(self.device), targets.to(self.device)
-                
-                if self.use_amp:
-                    with autocast():
-                        outputs = self.model(data)
+            # Validation
+            model.eval()
+            val_loss, val_acc = 0.0, 0.0
+            num_val_batches = 0
+            
+            with torch.no_grad():
+                val_pbar = tqdm(val_loader, desc=f"Epoch {epoch+1}/{self.epochs} [Valid]")
+                for data, target in val_pbar:
+                    data, target = data.to(device), target.to(device)
+                    
+                    if self.use_amp and scaler is not None:
+                        with autocast():
+                            outputs = model(data)
+                            if isinstance(outputs, tuple):
+                                main_output = outputs[0]  # Use main output for validation
+                            else:
+                                main_output = outputs
+                            
+                            loss = criterion(main_output, target)
+                    else:
+                        outputs = model(data)
                         if isinstance(outputs, tuple):
-                            main_output = outputs[0]  # Take main output for validation metrics
+                            main_output = outputs[0]  # Use main output for validation
                         else:
                             main_output = outputs
                         
-                        loss = self.criterion(main_output, targets)
-                else:
-                    outputs = self.model(data)
-                    if isinstance(outputs, tuple):
-                        main_output = outputs[0]  # Take main output for validation metrics
-                    else:
-                        main_output = outputs
+                        loss = criterion(main_output, target)
                     
-                    loss = self.criterion(main_output, targets)
-                
-                total_loss += loss.item()
-                num_batches += 1
-                
-                # Collect predictions for metrics calculation
-                preds = torch.argmax(main_output, dim=1).cpu().numpy()
-                all_preds.extend(preds)
-                all_targets.extend(targets.cpu().numpy())
-        
-        avg_loss = total_loss / num_batches
-        accuracy = accuracy_score(all_targets, all_preds)
-        
-        self.val_losses.append(avg_loss)
-        self.val_accuracies.append(accuracy)
-        
-        return avg_loss, accuracy
-    
-    def train(self) -> Dict[str, List]:
-        """Train the model for the specified number of epochs."""
-        self.logger.info(f"Starting training for {self.config['epochs']} epochs...")
-        
-        for epoch in range(self.config['epochs']):
-            self.logger.info(f"Epoch {epoch+1}/{self.config['epochs']}")
+                    # Calculate accuracy
+                    acc = (main_output.argmax(dim=1) == target).float().mean()
+                    
+                    val_loss += loss.item()
+                    val_acc += acc.item()
+                    num_val_batches += 1
+                    
+                    # Update progress bar
+                    val_pbar.set_postfix({
+                        'Loss': f'{loss.item():.4f}',
+                        'Acc': f'{acc.item():.4f}'
+                    })
             
-            # Train for one epoch
-            train_loss = self.train_epoch()
+            avg_val_loss = val_loss / num_val_batches
+            avg_val_acc = val_acc / num_val_batches
             
-            # Validate
-            val_loss, val_acc = self.validate()
-            
-            # Calculate train accuracy (approximately)
-            train_acc = max(0.0, 1.0 - train_loss / 5.0)  # Rough estimate
-            
-            self.train_accuracies.append(train_acc)
+            # Update learning rate scheduler
+            self._update_scheduler(optimizer, avg_val_loss, epoch)
             
             # Log metrics
-            self.logger.info(
-                f"Epoch {epoch+1}: "
-                f"Train Loss: {train_loss:.4f}, "
-                f"Val Loss: {val_loss:.4f}, "
-                f"Val Acc: {val_acc:.4f}"
-            )
+            metrics = {
+                'epoch': epoch + 1,
+                'train_loss': avg_train_loss,
+                'train_acc': avg_train_acc,
+                'val_loss': avg_val_loss,
+                'val_acc': avg_val_acc,
+                'lr': optimizer.param_groups[0]['lr']
+            }
+            self.training_history.append(metrics)
+            
+            print(f"Epoch {epoch+1}/{self.epochs} | "
+                  f"Train Loss: {avg_train_loss:.4f} | Train Acc: {avg_train_acc:.4f} | "
+                  f"Val Loss: {avg_val_loss:.4f} | Val Acc: {avg_val_acc:.4f}")
+            
+            # Save best model
+            if avg_val_acc > self.best_val_acc:
+                self.best_val_acc = avg_val_acc
+                self.early_stop_counter = 0
+                
+                best_model_path = model_dir / "best_model.pth"
+                model.save(str(best_model_path))
+                print(f"  ✓ New best model saved (Val Acc: {avg_val_acc:.4f})")
+            else:
+                # Only increment counter if early stopping is enabled (patience > 0)
+                if self.patience > 0:
+                    self.early_stop_counter += 1
             
             # Early stopping check
-            if self.early_stopping_patience > 0:
-                if val_loss < self.best_val_loss:
-                    self.best_val_loss = val_loss
-                    self.best_epoch = epoch
-                    self.early_stopping_counter = 0
-                    
-                    # Save best model
-                    self.save_checkpoint(f"best_model.pth")
-                else:
-                    self.early_stopping_counter += 1
-                    if self.early_stopping_counter >= self.early_stopping_patience:
-                        self.logger.info(f"Early stopping at epoch {epoch+1}")
-                        break
-            else:
-                # Always save the latest model when early stopping is disabled
-                self.save_checkpoint(f"latest_model.pth")
+            if self.patience > 0 and self.early_stop_counter >= self.patience:
+                print(f"\nEarly stopping triggered after {epoch+1} epochs")
+                break
+            
+            # Save training log
+            self._save_training_log(log_dir)
         
-        return {
-            "train_losses": self.train_losses,
-            "val_losses": self.val_losses,
-            "train_accuracies": self.train_accuracies,
-            "val_accuracies": self.val_accuracies
-        }
+        print("\n" + "=" * 80)
+        print("TRAINING COMPLETE")
+        print("=" * 80)
+        print(f"Best validation accuracy: {self.best_val_acc:.4f}")
+        
+        # Save final model
+        final_model_path = model_dir / "final_model.pth"
+        model.save(str(final_model_path))
+        
+        return self.training_history
     
-    def save_checkpoint(self, filepath: str):
-        """Save model checkpoint."""
-        checkpoint = {
-            'epoch': len(self.train_losses),
-            'model_state_dict': self.model.state_dict(),
-            'optimizer_state_dict': self.optimizer.state_dict(),
-            'train_losses': self.train_losses,
-            'val_losses': self.val_losses,
-            'train_accuracies': self.train_accuracies,
-            'val_accuracies': self.val_accuracies,
-        }
-        torch.save(checkpoint, filepath)
+    def _update_scheduler(self, optimizer, val_loss, epoch):
+        """
+        Update learning rate scheduler.
+        
+        Args:
+            optimizer: PyTorch optimizer
+            val_loss: Current validation loss
+            epoch: Current epoch
+        """
+        # Simple step decay
+        if epoch > 0 and epoch % 10 == 0:
+            for param_group in optimizer.param_groups:
+                param_group['lr'] *= 0.5
+            print(f"  Learning rate reduced to {optimizer.param_groups[0]['lr']:.6f}")
+    
+    def _save_training_log(self, log_dir):
+        """
+        Save training history to CSV.
+        
+        Args:
+            log_dir: Directory to save logs
+        """
+        import csv
+        from pathlib import Path
+        
+        csv_path = log_dir / "training_log.csv"
+        
+        # Write to CSV
+        with open(csv_path, 'w', newline='') as f:
+            if self.training_history:
+                import csv
+                fieldnames = self.training_history[0].keys()
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(self.training_history)

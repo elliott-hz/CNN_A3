@@ -17,7 +17,7 @@ from src.models.googlenet_model_with_auxiliary import GoogLeNetClassifierWithAux
 from src.training.googlenet_trainer import GoogLeNetTrainer
 from src.evaluation.googlenet_evaluator import GoogLeNetEvaluator
 from src.data_processing.emotion_preprocessor import EmotionPreprocessor
-from src.utils.file_utils import create_experiment_directory
+from src.utils.file_utils import create_experiment_dir
 
 
 def run_experiment(use_small_subset=False):
