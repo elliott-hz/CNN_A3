@@ -1,0 +1,42 @@
+model:
+  architecture: "GoogLeNetWithAuxiliary"
+  num_classes: 5
+  dropout_rate: 0.4
+  freeze_backbone: false
+  use_auxiliary: true
+
+data:
+  dataset_path: "data/splitting/emotion_split"
+  image_size: [224, 224]
+  batch_size: 32
+  transforms:
+    train: "default_train_augmentations"
+    val: "default_val_transforms"
+    test: "default_test_transforms"
+
+training:
+  epochs: 120
+  learning_rate: 0.01
+  weight_decay: 0.0005
+  optimizer: "sgd"
+  momentum: 0.9
+  scheduler: "step"
+  step_size: 30
+  gamma: 0.1
+  use_amp: true
+  early_stopping_patience: 0
+  main_weight: 1.0
+  aux1_weight: 0.3
+  aux2_weight: 0.3
+
+loss:
+  label_smoothing: 0.1
+
+validation:
+  metric: "accuracy"
+  compare: "max"
+
+logging:
+  level: "INFO"
+  save_path: "logs/"
+  experiment_name: "exp11_googlenet_with_auxiliary"
