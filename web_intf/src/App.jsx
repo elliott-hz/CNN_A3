@@ -44,16 +44,18 @@ function App() {
         </div>
       </header>
 
-      {/* Main Content */}
+      {/* Main Content - Unified Upload and Results Area */}
       <main className="app-main">
-        <ImageUploader onResults={handleResults} />
-        
-        {results && (
-          <ResultsDisplay 
-            results={results}
-            imagePreview={imagePreview}
-          />
-        )}
+        <div className="unified-container">
+          <ImageUploader onResults={handleResults} />
+          
+          {results && imagePreview && (
+            <ResultsDisplay 
+              results={results}
+              imagePreview={imagePreview}
+            />
+          )}
+        </div>
       </main>
 
       {/* Footer */}

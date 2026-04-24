@@ -42,33 +42,50 @@ const ResultsDisplay = ({ results, imagePreview }) => {
         const textMetrics = ctx.measureText(labelText);
         const textHeight = 20;
         const padding = 5;
+        const labelWidth = textMetrics.width + padding * 2;
+        const labelHeight = textHeight + padding * 2;
+
+        // Smart positioning for top label (emotion)
+        let labelY = y1 - labelHeight;
+        let labelInsideTop = false;
+        
+        // If not enough space above, place inside the box at top
+        if (labelY < 0) {
+          labelY = y1 + 5; // Small offset from top edge
+          labelInsideTop = true;
+        }
 
         // Draw label background
         ctx.fillStyle = color;
-        ctx.fillRect(
-          x1,
-          y1 - textHeight - padding * 2,
-          textMetrics.width + padding * 2,
-          textHeight + padding * 2
-        );
+        ctx.fillRect(x1, labelY, labelWidth, labelHeight);
 
         // Draw label text
         ctx.fillStyle = '#FFFFFF';
-        ctx.fillText(labelText, x1 + padding, y1 - padding);
+        ctx.fillText(labelText, x1 + padding, labelY + textHeight + padding - 2);
 
-        // Draw dog ID
+        // Smart positioning for bottom label (dog ID)
         const idText = `Dog #${detection.dog_id + 1}`;
         ctx.font = 'bold 14px Arial';
         const idMetrics = ctx.measureText(idText);
+        const idWidth = idMetrics.width + padding * 2;
+        const idHeight = textHeight;
+
+        let idY = y2 + padding;
+        let idInsideBottom = false;
+        
+        // If not enough space below, place inside the box at bottom
+        if (idY + idHeight > canvas.height) {
+          idY = y2 - idHeight - 5; // Small offset from bottom edge
+          idInsideBottom = true;
+        }
+
+        // Draw ID background
         ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-        ctx.fillRect(
-          x1,
-          y2 + padding,
-          idMetrics.width + padding * 2,
-          textHeight
-        );
+        ctx.fillRect(x1, idY, idWidth, idHeight);
+        
+        // Draw ID text
         ctx.fillStyle = '#FFFFFF';
-        ctx.fillText(idText, x1 + padding, y2 + padding + 14);
+        ctx.fillText(idText, x1 + padding, idY + 14);
       });
 
       setImageLoaded(true);

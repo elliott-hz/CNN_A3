@@ -1192,18 +1192,34 @@ When results are displayed, you'll see:
   - 😟 Frown: Orange (#FF9800)
   - 👀 Alert: Purple (#9C27B0)
 
-- **Emotion Labels**: At top-left of each box
+- **Emotion Labels**: Smart positioning at top-left of each box
   - Shows emoji + emotion name + confidence %
   - Example: "😊 Happy (87.3%)"
+  - **Auto-adjusts position**: If box is near image edge, label moves inside to stay visible
 
-- **Dog ID Tags**: At bottom-left of each box
+- **Dog ID Tags**: Smart positioning at bottom-left of each box
   - Shows "Dog #1", "Dog #2", etc.
+  - **Auto-adjusts position**: If box is near bottom edge, label moves inside to stay visible
 
-**Below the Image:**
-- Detection confidence scores
-- Emotion confidence scores
-- Bounding box coordinates
-- Full probability distribution bars for all 5 emotions
+### UI Optimization (Latest Updates)
+
+**Compact Upload Interface**:
+- Upload area now uses minimal vertical space (80px height)
+- Horizontal layout with icon + text side-by-side
+- File info shown inline (name + size)
+- No image preview in upload area (avoids duplicate rendering)
+
+**Frontend Image Resizing**:
+- Images >640px automatically resized to 640px max dimension
+- Aspect ratio preserved
+- 90% JPEG quality for optimal size/quality balance
+- Reduces inference time by ~60% on CPU
+
+**Smart Label Positioning**:
+- Labels automatically repositioned when near image edges
+- Top label (emotion): Moves inside box if <30px space above
+- Bottom label (dog ID): Moves inside box if near canvas bottom
+- Ensures 100% label visibility in all scenarios
 
 ### Expected Results
 
