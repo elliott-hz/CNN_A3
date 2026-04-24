@@ -1,8 +1,6 @@
 import axios from 'axios';
 
-// Use relative path for SageMaker proxy environment
-// This will resolve to: /jupyterlab/default/proxy/8000/api/detect
-const API_BASE_URL = '/jupyterlab/default/proxy/8000';
+const API_BASE_URL = 'http://localhost:8000';
 
 /**
  * Upload image and get dog detection + emotion classification results
