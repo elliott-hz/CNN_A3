@@ -16,6 +16,7 @@ import os
 from torch.utils.data import DataLoader, Dataset
 from typing import Dict, Any, List, Tuple
 import ssl
+from tqdm import tqdm
 
 
 class RPNNDataset(Dataset):
@@ -388,11 +389,38 @@ class RCNNDetector:
         
         # Training loop
         self.model.train()
-        for epoch in range(epochs):
-            print(f"Epoch {epoch+1}/{epochs}")
-            total_loss = 0.0
+        global_step = 0
+        num_batches = len(dataloader)
+        
+        # Outer progress bar for epochs
+        epoch_pbar = tqdm(
+            range(epochs),
+            desc="Training",
+            position=0,
+            bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]"
+        )
+        
+        for epoch in epoch_pbar:
+            epoch_pbar.set_description(f"Epoch {epoch+1}/{epochs}")
             
-            for batch_idx, (images, targets) in enumerate(dataloader):
+            total_loss = 0.0
+            total_cls_loss = 0.0
+            total_box_loss = 0.0
+            total_rpn_loss = 0.0
+            
+            # Inner progress bar for batches
+            batch_pbar = tqdm(
+                enumerate(dataloader),
+                total=num_batches,
+                desc=f"Batch",
+                position=1,
+                leave=False,
+                bar_format="{desc} {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}] {postfix}"
+            )
+            
+            for batch_idx, (images, targets) in batch_pbar:
+                global_step += 1
+                
                 # Move images and targets to device
                 images = [img.to(self.device) for img in images]
                 targets = [{k: v.to(self.device) for k, v in t.items()} for t in targets]
@@ -418,17 +446,55 @@ class RCNNDetector:
                     losses.backward()
                     optimizer_obj.step()
                 
-                total_loss += losses.item()
+                # Accumulate losses
+                loss_val = losses.item()
+                total_loss += loss_val
                 
-                # Print progress every 10 batches or when we finish the epoch
-                if batch_idx % 10 == 0 or batch_idx == len(dataloader) - 1:
-                    avg_loss = total_loss / (batch_idx + 1)
-                    print(f"Batch {batch_idx}, Average Loss: {avg_loss:.4f}")
+                # Track individual loss components if available
+                cls_loss = loss_dict.get('loss_classifier', torch.tensor(0.0)).item()
+                box_loss = loss_dict.get('loss_box_reg', torch.tensor(0.0)).item()
+                rpn_loss = loss_dict.get('loss_rpn_box_reg', torch.tensor(0.0)).item() + loss_dict.get('loss_objectness', torch.tensor(0.0)).item()
                 
+                total_cls_loss += cls_loss
+                total_box_loss += box_loss
+                total_rpn_loss += rpn_loss
+                
+                # Compute running averages
+                avg_loss = total_loss / (batch_idx + 1)
+                avg_cls = total_cls_loss / (batch_idx + 1)
+                avg_box = total_box_loss / (batch_idx + 1)
+                avg_rpn = total_rpn_loss / (batch_idx + 1)
+                
+                # Update batch progress bar postfix with comprehensive info
+                current_lr = optimizer_obj.param_groups[0]['lr']
+                batch_pbar.set_postfix({
+                    'loss': f'{loss_val:.4f}',
+                    'avg_loss': f'{avg_loss:.4f}',
+                    'cls': f'{avg_cls:.4f}',
+                    'box': f'{avg_box:.4f}',
+                    'rpn': f'{avg_rpn:.4f}',
+                    'lr': f'{current_lr:.6f}'
+                })
+            
+            # Close batch progress bar
+            batch_pbar.close()
+            
             # Step scheduler
             scheduler.step()
             
-            print(f"Epoch {epoch+1} completed, Average Loss: {total_loss/len(dataloader):.4f}")
+            # Epoch summary
+            epoch_avg_loss = total_loss / num_batches
+            epoch_pbar.set_postfix({
+                'epoch_loss': f'{epoch_avg_loss:.4f}',
+                'cls': f'{total_cls_loss/num_batches:.4f}',
+                'box': f'{total_box_loss/num_batches:.4f}',
+                'rpn': f'{total_rpn_loss/num_batches:.4f}',
+                'lr': f'{optimizer_obj.param_groups[0]["lr"]:.6f}'
+            })
+            
+            print(f"\n[Epoch {epoch+1}/{epochs}]  Avg Loss: {epoch_avg_loss:.4f}  |  "
+                  f"Cls: {total_cls_loss/num_batches:.4f}  Box: {total_box_loss/num_batches:.4f}  "
+                  f"RPN: {total_rpn_loss/num_batches:.4f}  |  LR: {optimizer_obj.param_groups[0]['lr']:.6f}\n")
         
         # Save final model
         final_model_path = save_path / "last.pt"

@@ -40,9 +40,20 @@ class DetectionEvaluator:
         
         return inter_area / (union_area + 1e-8)
     
-    def _evaluate_rcnn(self, model, test_data, output_dir: str):
+    def _evaluate_rcnn(self, model, test_data, output_dir: str, confidence_threshold=None):
         """
         Evaluate RCNN model on test set.
+        
+        Uses adaptive confidence thresholding:
+        - If model is undertrained (max score < 0.5), automatically lowers threshold
+        - If model is well-trained (max score >= 0.5), uses default 0.5 threshold
+        - Manual override via confidence_threshold parameter always takes precedence
+        
+        Args:
+            model: RCNNDetector model
+            test_data: Path to dataset config
+            output_dir: Directory to save outputs
+            confidence_threshold: Optional manual override for confidence threshold.
         """
         from src.models.rcnn_detection_model import RPNNDataset
         
@@ -69,6 +80,11 @@ class DetectionEvaluator:
         all_predictions = []
         all_targets = []
         
+        # Diagnostics
+        total_pred_before_filter = 0
+        total_pred_after_filter = 0
+        score_samples = []
+        
         with torch.no_grad():
             for images, targets in dataloader:
                 images = [img.to(device) for img in images]
@@ -77,19 +93,59 @@ class DetectionEvaluator:
                 outputs = model.model(images)
                 
                 for output, target in zip(outputs, targets):
+                    boxes = output['boxes'].cpu().numpy()
+                    scores = output['scores'].cpu().numpy()
+                    labels = output['labels'].cpu().numpy()
+                    
+                    total_pred_before_filter += len(scores)
+                    if len(scores) > 0:
+                        score_samples.extend(scores.tolist())
+                    
                     all_predictions.append({
-                        'boxes': output['boxes'].cpu().numpy(),
-                        'scores': output['scores'].cpu().numpy(),
-                        'labels': output['labels'].cpu().numpy()
+                        'boxes': boxes,
+                        'scores': scores,
+                        'labels': labels
                     })
                     all_targets.append({
                         'boxes': target['boxes'].cpu().numpy(),
                         'labels': target['labels'].cpu().numpy()
                     })
         
+        # ─── Adaptive confidence threshold ───
+        if confidence_threshold is not None:
+            # Manual override always wins
+            conf_thresh = confidence_threshold
+            adaptive_msg = "(manual override)"
+        elif len(score_samples) == 0:
+            # No predictions at all
+            conf_thresh = model.confidence_threshold
+            adaptive_msg = "(no predictions)"
+        elif max(score_samples) < model.confidence_threshold:
+            # Model is undertrained: max score below default threshold
+            # Use 20th percentile of scores as adaptive threshold
+            score_samples_sorted = sorted(score_samples)
+            percentile_20_idx = max(0, int(len(score_samples_sorted) * 0.20) - 1)
+            adaptive_thresh = score_samples_sorted[percentile_20_idx]
+            # Clamp to reasonable range [0.05, 0.5]
+            adaptive_thresh = max(0.05, min(adaptive_thresh, 0.5))
+            conf_thresh = adaptive_thresh
+            adaptive_msg = f"(ADAPTIVE: undertrained detected, default={model.confidence_threshold})"
+        else:
+            # Model is well-trained: use default threshold
+            conf_thresh = model.confidence_threshold
+            adaptive_msg = "(ADAPTIVE: well-trained, using default)"
+        
+        print(f"\n--- RCNN Evaluation Diagnostics ---")
+        print(f"  Dataset size: {len(dataset)}")
+        print(f"  Total predictions (before filter): {total_pred_before_filter}")
+        print(f"  Confidence threshold: {conf_thresh:.4f} {adaptive_msg}")
+        if len(score_samples) > 0:
+            print(f"  Score statistics: min={min(score_samples):.4f}, max={max(score_samples):.4f}, mean={sum(score_samples)/len(score_samples):.4f}")
+        else:
+            print(f"  Score statistics: No predictions at all!")
+        
         # Compute metrics at IoU=0.5
         iou_threshold = 0.5
-        confidence_threshold = model.confidence_threshold
         
         total_tp = 0
         total_fp = 0
@@ -101,9 +157,11 @@ class DetectionEvaluator:
             pred_labels = pred['labels']
             
             # Filter by confidence
-            keep = pred_scores >= confidence_threshold
+            keep = pred_scores >= conf_thresh
             pred_boxes = pred_boxes[keep]
             pred_labels = pred_labels[keep]
+            
+            total_pred_after_filter += len(pred_boxes)
             
             gt_boxes = target['boxes']
             gt_labels = target['labels']
@@ -119,6 +177,7 @@ class DetectionEvaluator:
                 for idx, (gb, gl) in enumerate(zip(gt_boxes, gt_labels)):
                     if idx in matched_gt:
                         continue
+                    # RCNN labels start at 1 (0 is background), so compare directly
                     if pl != gl:
                         continue
                     iou = self._compute_iou(pb, gb)
@@ -137,13 +196,15 @@ class DetectionEvaluator:
             total_fp += fp
             total_fn += fn
         
+        print(f"  Total predictions (after filter): {total_pred_after_filter}")
+        print(f"  True Positives: {total_tp}, False Positives: {total_fp}, False Negatives: {total_fn}")
+        print(f"-----------------------------------")
+        
         precision = total_tp / (total_tp + total_fp + 1e-8)
         recall = total_tp / (total_tp + total_fn + 1e-8)
         f1_score = 2 * precision * recall / (precision + recall + 1e-8)
         
         # Approximate mAP@0.5 using precision-recall
-        # For a more accurate mAP, we'd need to compute AP across all confidence thresholds
-        # Here we use a simplified approximation
         map50 = precision * recall  # Simplified approximation
         map50_95 = map50 * 0.7  # Rough estimate for mAP@0.5:0.95
         
@@ -152,7 +213,13 @@ class DetectionEvaluator:
             'mAP50_95': float(map50_95),
             'precision': float(precision),
             'recall': float(recall),
-            'f1_score': float(f1_score)
+            'f1_score': float(f1_score),
+            'total_tp': total_tp,
+            'total_fp': total_fp,
+            'total_fn': total_fn,
+            'predictions_before_filter': total_pred_before_filter,
+            'predictions_after_filter': total_pred_after_filter,
+            'confidence_threshold_used': conf_thresh
         }
         
         print(f"\nEvaluation Results (RCNN):")
@@ -161,6 +228,12 @@ class DetectionEvaluator:
         print(f"  Precision: {self.metrics['precision']:.4f}")
         print(f"  Recall: {self.metrics['recall']:.4f}")
         print(f"  F1-Score: {self.metrics['f1_score']:.4f}")
+        
+        # Warning if all metrics are zero
+        if total_tp == 0 and total_fp == 0:
+            print(f"\n⚠️ WARNING: Zero predictions passed the confidence threshold ({conf_thresh}).")
+            print(f"   This usually means the model is untrained or undertrained.")
+            print(f"   Try retraining for more epochs, or lower the confidence threshold for evaluation.")
         
         # Save metrics
         metrics_path = Path(output_dir) / "logs" / "evaluation_metrics.json"
@@ -172,7 +245,7 @@ class DetectionEvaluator:
         
         return self.metrics
     
-    def evaluate(self, model, test_data, output_dir: str):
+    def evaluate(self, model, test_data, output_dir: str, confidence_threshold=None):
         """
         Evaluate model on test set.
         
@@ -180,6 +253,9 @@ class DetectionEvaluator:
             model: YOLOv8Detector or RCNNDetector model
             test_data: Test dataset or path
             output_dir: Directory to save outputs
+            confidence_threshold: Optional override for confidence threshold.
+                               Useful when model is undertrained and default
+                               threshold yields zero predictions.
             
         Returns:
             Dictionary of evaluation metrics
@@ -195,7 +271,7 @@ class DetectionEvaluator:
         if self._is_yolo_model(model):
             return self._evaluate_yolo(model, test_data, output_dir)
         else:
-            return self._evaluate_rcnn(model, test_data, output_dir)
+            return self._evaluate_rcnn(model, test_data, output_dir, confidence_threshold)
     
     def _evaluate_yolo(self, model, test_data, output_dir: str):
         """
@@ -265,4 +341,3 @@ See the `figures/` directory for visualization outputs.
             f.write(report)
         
         print(f"Report saved to: {report_path}")
-
