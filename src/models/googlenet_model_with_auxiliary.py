@@ -29,8 +29,10 @@ class GoogLeNetClassifierWithAuxiliary(GoogLeNetClassifier):
         """
         super(GoogLeNetClassifierWithAuxiliary, self).__init__(config)
         
-        # Enable auxiliary classifiers
+        # Enable auxiliary classifiers with corrected input channels
+        # Auxiliary classifier 1 connects after inception4a which outputs 512 channels
         self.aux_classifier1 = AuxiliaryClassifier(512, self.num_classes)
+        # Auxiliary classifier 2 connects after inception4d which outputs 528 channels
         self.aux_classifier2 = AuxiliaryClassifier(528, self.num_classes)
     
     def forward(self, x):
@@ -62,7 +64,7 @@ class GoogLeNetClassifierWithAuxiliary(GoogLeNetClassifier):
         x = self.inception3b(x)
         x = self.maxpool3(x)
         
-        # First auxiliary classifier (after inception4a equivalent position)
+        # First auxiliary classifier (after inception4a)
         x = self.inception4a(x)
         aux1 = None
         if self.training and hasattr(self, 'aux_classifier1'):
@@ -71,12 +73,12 @@ class GoogLeNetClassifierWithAuxiliary(GoogLeNetClassifier):
         x = self.inception4b(x)
         x = self.inception4c(x)
         
-        # Second auxiliary classifier (after inception4e equivalent position)
+        x = self.inception4d(x)
+        # Second auxiliary classifier (after inception4d)
         aux2 = None
         if self.training and hasattr(self, 'aux_classifier2'):
             aux2 = self.aux_classifier2(x)
         
-        x = self.inception4d(x)
         x = self.inception4e(x)
         x = self.maxpool4(x)
         
