@@ -1,12 +1,10 @@
-# Import all inference classes and functions
-from .classification_inference import ClassificationInference
-from .detection_inference import DetectionInference
-from .pipeline_inference import PipelineInference
-from .googlenet_inference import CustomClassificationInference
+"""
+Inference Module
+Contains inference pipelines for detection, classification, and end-to-end processing
+"""
 
-__all__ = [
-    'ClassificationInference',
-    'DetectionInference',
-    'PipelineInference',
-    'CustomClassificationInference'
-]
+from .detection_inference import DetectionInference
+from .classification_inference import ClassificationInference
+from .pipeline_inference import PipelineInference
+
+__all__ = ['DetectionInference', 'ClassificationInference', 'PipelineInference']

@@ -1,10 +1,9 @@
-# Import all evaluation classes and functions
-from .classification_evaluator import ClassificationEvaluator
-from .detection_evaluator import DetectionEvaluator
-from .googlenet_evaluator import CustomClassificationEvaluator
+"""
+Evaluation Module
+Contains evaluation frameworks for detection and classification models
+"""
 
-__all__ = [
-    'ClassificationEvaluator',
-    'DetectionEvaluator',
-    'CustomClassificationEvaluator'
-]
+from .detection_evaluator import DetectionEvaluator
+from .classification_evaluator import ClassificationEvaluator
+
+__all__ = ['DetectionEvaluator', 'ClassificationEvaluator']

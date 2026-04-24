@@ -1,10 +1,9 @@
-# Import all training classes and functions
-from .classification_trainer import ClassificationTrainer
-from .detection_trainer import DetectionTrainer
-from .googlenet_trainer import CustomClassificationTrainer
+"""
+Training Module
+Contains training frameworks for detection and classification models
+"""
 
-__all__ = [
-    'ClassificationTrainer',
-    'DetectionTrainer',
-    'CustomClassificationTrainer'
-]
+from .detection_trainer import DetectionTrainer
+from .classification_trainer import ClassificationTrainer
+
+__all__ = ['DetectionTrainer', 'ClassificationTrainer']
