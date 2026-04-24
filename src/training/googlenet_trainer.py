@@ -14,7 +14,7 @@ from sklearn.metrics import accuracy_score, precision_recall_fscore_support, con
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from src.utils.logger import Logger
+from src.utils.logger import setup_logger
 from src.utils.googlenet_utils import compute_combined_loss
 from src.evaluation.googlenet_evaluator import GoogLeNetEvaluator
 
@@ -48,7 +48,7 @@ class GoogLeNetTrainer:
         self.val_loader = val_loader
         self.config = config
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.logger = Logger(config.get("experiment_name", "googlenet_training"))
+        self.logger = setup_logger(config.get("experiment_name", "googlenet_training"))
         
         # Move model to device
         self.model.to(self.device)
