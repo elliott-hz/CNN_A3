@@ -14,7 +14,7 @@ export default defineConfig({
     // Listen on all network interfaces
     host: true,
     port: 5173,
-    // Configure HMR WebSocket for proxy
+    // Configure HMR for proxy environment
     hmr: {
       protocol: 'wss',
       host: 'cyk8dhyvk3zadsd.studio.sagemaker.ap-southeast-2.app.aws',
