@@ -23,9 +23,10 @@ class RPNNDataset(Dataset):
     Custom dataset for detection that works with RCNN models
     This dataset loads YOLO format annotations and converts them to the format expected by RCNN
     """
-    def __init__(self, dataset_path: str, transform=None):
+    def __init__(self, dataset_path: str, split: str = 'train', transform=None):
         super().__init__()  # Explicitly call parent init
         self.dataset_path = Path(dataset_path)
+        self.split = split
         
         # Check if dataset_path is already the directory containing dataset.yaml
         # or if it's the full path to dataset.yaml
@@ -48,12 +49,12 @@ class RPNNDataset(Dataset):
         # is dataset_path / 'data/processed/detection'
         # But in our case, the path in config is 'data/processed/detection' which is the same as dataset_path
         # So we just use the dataset_path directly for the image and label directories
-        train_img_subdir = self.config.get('train', 'images/train')
-        train_lbl_subdir = train_img_subdir.replace('images', 'labels')
+        img_subdir = self.config.get(split, f'images/{split}')
+        lbl_subdir = img_subdir.replace('images', 'labels')
         
         # Directly use the dataset_path for constructing image and label directories
-        self.img_dir = self.dataset_path / train_img_subdir
-        self.label_dir = self.dataset_path / train_lbl_subdir
+        self.img_dir = self.dataset_path / img_subdir
+        self.label_dir = self.dataset_path / lbl_subdir
         
         # Get list of images
         self.images = []
@@ -63,7 +64,7 @@ class RPNNDataset(Dataset):
         # Remove duplicates
         self.images = list(set(self.images))
         
-        print(f"Found {len(self.images)} images in {self.img_dir}")
+        print(f"Found {len(self.images)} images in {self.img_dir} for split '{split}'")
         
         # Map class names to IDs
         if isinstance(self.config.get('names'), dict):
@@ -424,18 +425,10 @@ class RCNNDetector:
                     avg_loss = total_loss / (batch_idx + 1)
                     print(f"Batch {batch_idx}, Average Loss: {avg_loss:.4f}")
                 
-                # Limit batches for testing purposes
-                if __debug__ and batch_idx >= 5:  # Only process first 5 batches in debug
-                    break
-            
             # Step scheduler
             scheduler.step()
             
-            print(f"Epoch {epoch+1} completed, Average Loss: {total_loss/min(len(dataloader), 6):.4f}")  # Limited to 6 for test run
-            
-            # Break early if debugging
-            if __debug__ and epoch >= 0:  # Only run first epoch in debug
-                break
+            print(f"Epoch {epoch+1} completed, Average Loss: {total_loss/len(dataloader):.4f}")
         
         # Save final model
         final_model_path = save_path / "last.pt"
