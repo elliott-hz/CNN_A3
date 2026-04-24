@@ -139,7 +139,7 @@ def main():
         sys.exit(1)
     
     # Evaluate model
-    logger.info("\n[Step 4/4] Evaluating model on test set...")
+    logger.info("\n[Step 4/4] Evaluating model on test set....")
     
     evaluator = DetectionEvaluator()
     
