@@ -3,25 +3,23 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
 
-  // IMPORTANT for SageMaker proxy path
   base: './',
 
   plugins: [react()],
 
   server: {
 
-    // MUST for SageMaker
     host: '0.0.0.0',
 
     port: 5173,
 
     strictPort: true,
 
-    // IMPORTANT
     hmr: false,
 
-    // VERY IMPORTANT
-    allowedHosts: 'all',
+    allowedHosts: [
+      'cyk8dhyvk3zadsd.studio.sagemaker.ap-southeast-2.app.aws'
+    ],
 
     proxy: {
 
