@@ -1,6 +1,9 @@
 # Data directory - too large to commit, manage separately
 data/
 
+# Outputs directory - experimental results and model checkpoints
+outputs/
+
 # Python
 __pycache__/
 *.py[cod]
@@ -40,3 +43,26 @@ preprocessing_log.txt
 # Temporary files
 *.tmp
 *.temp
+
+# PyTorch and ML caches
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+**/.DS_Store
+**/.gitattributes
+**/Thumbs.db
+**/.ipynb_checkpoints
+**/.pytest_cache
+**/__pycache__/**
+**/wandb/
+**/mlruns/
+**/.cache/
+**/.vscode/
+**/.idea/
+**/runs/
+**/checkpoints/
+**/saved_models/
+**/model_cache/
+**/experiment_outputs/
+**/tensorboard_logs/

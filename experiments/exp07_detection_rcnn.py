@@ -1,8 +1,8 @@
 """
-Experiment 02: Detection Model - Modified Version 1 (YOLOv8 Large)
+Experiment 07: Detection Model - RCNN (Faster R-CNN ResNet50 FPN)
 
-This experiment trains a modified YOLOv8 model with larger backbone and input size.
-Configuration: backbone='l', input_size=1280, confidence=0.6
+This experiment trains a Faster R-CNN model with ResNet50 FPN backbone.
+Configuration: input_size=800, confidence=0.5, nms_iou_threshold=0.5
 """
 
 import sys
@@ -13,7 +13,7 @@ import glob
 # Add parent directory to path
 sys.path.append(str(Path(__file__).parent.parent))
 
-from src.models.detection_model import YOLOv8Detector, MODIFIED_V1_DETECTION_CONFIG
+from src.models.rcnn_detection_model import RCNNDetector, RCNN_BASELINE_CONFIG
 from src.training.detection_trainer import DetectionTrainer
 from src.evaluation.detection_evaluator import DetectionEvaluator
 from src.utils.file_utils import create_experiment_dir
@@ -42,10 +42,10 @@ def get_latest_run_dir(experiment_name):
 
 
 def main():
-    """Run Experiment 02: Detection Modified V1."""
+    """Run Experiment 07: Detection RCNN."""
     
     # Parse command line arguments
-    parser = argparse.ArgumentParser(description='Run Experiment 02: Detection Modified V1')
+    parser = argparse.ArgumentParser(description='Run Experiment 07: Detection RCNN')
     parser.add_argument('--resume', action='store_true',
                         help='Resume training from the latest checkpoint in the latest run directory')
     
@@ -55,7 +55,7 @@ def main():
     RESUME_TRAINING = args.resume
     
     # Setup
-    experiment_name = "exp02_detection_modified_v1"
+    experiment_name = "exp07_detection_rcnn"
     
     # --- Key modification 1: Determine output_dir based on whether to resume ---
     if RESUME_TRAINING:
@@ -94,31 +94,28 @@ def main():
     # Step 2: Initialize model and trainer
     logger.info("\n[Step 2/4] Initializing model and trainer...")
     
-    # Use modified v1 configuration
-    model_config = MODIFIED_V1_DETECTION_CONFIG.copy()
+    # Use RCNN configuration
+    model_config = RCNN_BASELINE_CONFIG.copy()
     
     training_config = {
-        'learning_rate': 0.0005,  # Lower learning rate for larger model
-        'batch_size': 4,          # Smaller batch due to larger model
-        'epochs': 120,            # Increased from 60 to 120
+        'learning_rate': 0.001,   # Standard learning rate
+        'batch_size': 8,          # Smaller batch due to RCNN complexity
+        'epochs': 120,            # Increased epochs
         'optimizer': 'adamw',     # AdamW optimizer
         'weight_decay': 1e-4,
-        'early_stopping_patience': 0,  # Increased proportionally
-        'use_amp': True,
-        'gradient_accumulation_steps': 1,  # Set to 1 (not implemented in YOLOv8)
-        'warmup_epochs': 10,      # Increased to 10% of total epochs
-        'scheduler': 'cosine',
+        'early_stopping_patience': 0,  # No early stopping
+        'use_amp': False,
+        'gradient_accumulation_steps': 1,
+        'warmup_epochs': 10,      # Warmup for first 10 epochs
+        'scheduler': 'step',
         'resume': RESUME_TRAINING  # <--- Pass resume status to Trainer
     }
     
     logger.info(f"Model config: {model_config}")
     logger.info(f"Training config: {training_config}")
     
-    # Create output directory
-    output_dir = create_experiment_dir(experiment_name)
-    
     # Initialize model
-    model = YOLOv8Detector(model_config)
+    model = RCNNDetector(model_config)
     
     # Initialize trainer
     trainer = DetectionTrainer(model_config, training_config)
@@ -129,7 +126,7 @@ def main():
         results = trainer.train(
             model=model,
             train_data=str(dataset_config_path),  # Pass dataset config path
-            val_data=str(dataset_config_path),    # YOLO uses same config for train/val
+            val_data=str(dataset_config_path),    # Training uses same config for train/val
             output_dir=str(output_dir) # <--- Key: Pass determined output_dir (new or old)
         )
         
@@ -143,25 +140,6 @@ def main():
     
     # Evaluate model
     logger.info("\n[Step 4/4] Evaluating model on test set...")
-    
-    # Reload best model weights for evaluation
-    # Standard Ultralytics saves to weights/best.pt, but your code might move it to model/best_model.pt
-    best_model_path = output_dir / "weights" / "best.pt" # Standard Ultralytics path
-    
-    # Fallback to your custom path if standard path doesn't exist
-    if not best_model_path.exists():
-        alt_best_path = output_dir / "model" / "best_model.pt"
-        if alt_best_path.exists():
-            best_model_path = alt_best_path
-    
-    if best_model_path.exists():
-        logger.info(f"Reloading best model weights from: {best_model_path}")
-        from ultralytics import YOLO
-        best_yolo_model = YOLO(str(best_model_path))
-        model.model = best_yolo_model  # Replace internal model
-        logger.info("Best model loaded successfully")
-    else:
-        logger.warning("Best model file not found, using current model state")
     
     evaluator = DetectionEvaluator()
     
