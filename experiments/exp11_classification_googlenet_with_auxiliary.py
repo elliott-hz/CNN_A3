@@ -7,8 +7,10 @@ import os
 import sys
 import torch
 import argparse
+import numpy as np
 from torch.utils.data import DataLoader
 import yaml
+from sklearn.model_selection import train_test_split
 
 # Add the src directory to the path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
@@ -18,6 +20,45 @@ from src.training.googlenet_trainer import GoogLeNetTrainer
 from src.evaluation.googlenet_evaluator import GoogLeNetEvaluator
 from src.data_processing.emotion_preprocessor import EmotionPreprocessor
 from src.utils.file_utils import create_experiment_dir
+from src.utils.logger import setup_logger
+
+
+def get_subset_data(X, y, subset_size_per_class=50, random_seed=42):
+    """
+    Randomly sample a subset of data while maintaining class balance.
+    
+    Args:
+        X: Input features/images
+        y: Labels
+        subset_size_per_class: Number of samples per class to include in subset
+        random_seed: Random seed for reproducibility
+        
+    Returns:
+        Subset of X and y with balanced classes
+    """
+    np.random.seed(random_seed)
+    
+    unique_labels = np.unique(y)
+    subset_indices = []
+    
+    for label in unique_labels:
+        # Find all indices with this label
+        label_indices = np.where(y == label)[0]
+        
+        # Randomly select subset_size_per_class samples from this class
+        if len(label_indices) >= subset_size_per_class:
+            selected_indices = np.random.choice(label_indices, subset_size_per_class, replace=False)
+        else:
+            # If class has fewer samples than desired, use all available samples
+            selected_indices = label_indices
+        
+        subset_indices.extend(selected_indices)
+    
+    # Convert to numpy array and shuffle to mix classes
+    subset_indices = np.array(subset_indices)
+    np.random.shuffle(subset_indices)
+    
+    return X[subset_indices], y[subset_indices]
 
 
 def run_experiment(use_small_subset=False):
@@ -28,7 +69,7 @@ def run_experiment(use_small_subset=False):
         use_small_subset: Whether to use a small subset of data for faster testing
     """
     # Create experiment directory
-    exp_dir = create_experiment_directory("exp11_classification_googlenet_with_auxiliary")
+    exp_dir = create_experiment_dir("exp11_classification_googlenet_with_auxiliary")
     
     # Configuration - mirroring exp10 but with auxiliary classifier specifics
     config = {
@@ -49,7 +90,9 @@ def run_experiment(use_small_subset=False):
             'early_stopping_patience': 0,  # Disabled as per spec
             'main_weight': 1.0,
             'aux1_weight': 0.3,
-            'aux2_weight': 0.3
+            'aux2_weight': 0.3,
+            'gradient_accumulation_steps': 1,
+            'class_weighting': True
         },
         'data': {
             'dataset_path': 'data/splitting/emotion_split',
@@ -68,56 +111,47 @@ def run_experiment(use_small_subset=False):
     print(f"Using device: {device}")
     
     # Load datasets
-    train_dataset = EmotionPreprocessor(
-        split='train',
-        dataset_path=config['data']['dataset_path'],
-        image_size=config['data']['image_size']
-    )
+    preprocessor = EmotionPreprocessor()
     
-    val_dataset = EmotionPreprocessor(
-        split='val',
-        dataset_path=config['data']['dataset_path'],
-        image_size=config['data']['image_size']
-    )
+    # Verify that data has been preprocessed
+    if not preprocessor.is_processed():
+        print("Emotion dataset has not been preprocessed yet!")
+        print("Please run src/data_processing/emotion_preprocessor.py first.")
+        sys.exit(1)
     
-    test_dataset = EmotionPreprocessor(
-        split='test',
-        dataset_path=config['data']['dataset_path'],
-        image_size=config['data']['image_size']
-    )
+    # Load data splits with error handling
+    try:
+        X_train, y_train = preprocessor.load_split('train')
+        X_val, y_val = preprocessor.load_split('val')
+        X_test, y_test = preprocessor.load_split('test')
+    except Exception as e:
+        print(f"Failed to load data splits: {e}")
+        import traceback
+        traceback.print_exc()
+        return
     
-    # Use small subset if requested
+    # Validate loaded data
+    print(f"Data loaded successfully:")
+    print(f"  Train: {len(X_train)} samples, shape: {X_train.shape[1:]}")
+    print(f"  Valid: {len(X_val)} samples, shape: {X_val.shape[1:]}")
+    print(f"  Test: {len(X_test)} samples, shape: {X_test.shape[1:]}")
+    
+    if len(X_train) == 0 or len(X_val) == 0 or len(X_test) == 0:
+        print("One or more splits are empty!")
+        return
+    
+    # If using small subset, extract subset from full dataset
     if use_small_subset:
-        train_dataset.data = train_dataset.data[:50]
-        val_dataset.data = val_dataset.data[:20]
-        test_dataset.data = test_dataset.data[:20]
-        print("Using small subset of data for testing")
-    
-    # Create data loaders
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=config['training']['batch_size'],
-        shuffle=True,
-        num_workers=2
-    )
-    
-    val_loader = DataLoader(
-        val_dataset,
-        batch_size=config['training']['batch_size'],
-        shuffle=False,
-        num_workers=2
-    )
-    
-    test_loader = DataLoader(
-        test_dataset,
-        batch_size=config['training']['batch_size'],
-        shuffle=False,
-        num_workers=2
-    )
-    
-    print(f"Training samples: {len(train_dataset)}")
-    print(f"Validation samples: {len(val_dataset)}")
-    print(f"Test samples: {len(test_dataset)}")
+        print(f"\n[Data Subset] Creating subset with 20 samples per class...")
+        
+        X_train, y_train = get_subset_data(X_train, y_train, 20)
+        X_val, y_val = get_subset_data(X_val, y_val, 5)  # Use fewer validation samples
+        X_test, y_test = get_subset_data(X_test, y_test, 5)  # Use fewer test samples
+        
+        print(f"Subset created:")
+        print(f"  Train: {len(X_train)} samples")
+        print(f"  Valid: {len(X_val)} samples")
+        print(f"  Test: {len(X_test)} samples")
     
     # Initialize model
     model = GoogLeNetClassifierWithAuxiliary(config['model'])
@@ -127,18 +161,28 @@ def run_experiment(use_small_subset=False):
     
     # Initialize trainer
     trainer = GoogLeNetTrainer(
-        model=model,
-        train_loader=train_loader,
-        val_loader=val_loader,
-        config=config['training'],
-        device=device
+        model_config=config['model'],
+        training_config=config['training']
     )
     
     # Train the model
     print("Starting training...")
-    metrics = trainer.train()
+    metrics = trainer.train(
+        model=model,
+        X_train=X_train,
+        y_train=y_train,
+        X_valid=X_val,
+        y_valid=y_val,
+        output_dir=str(exp_dir)
+    )
     
     # Evaluate on test set
+    # Need to create a temporary dataloader for test evaluation
+    X_test_tensor = torch.from_numpy(X_test).permute(0, 3, 1, 2).float()
+    y_test_tensor = torch.from_numpy(y_test).long()
+    test_dataset = torch.utils.data.TensorDataset(X_test_tensor, y_test_tensor)
+    test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
+    
     evaluator = GoogLeNetEvaluator(model, test_loader, device)
     test_results = evaluator.evaluate()
     
@@ -165,16 +209,16 @@ def run_experiment(use_small_subset=False):
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
     
     # Loss curve
-    ax1.plot(metrics['train_losses'], label='Train Loss')
-    ax1.plot(metrics['val_losses'], label='Validation Loss')
+    ax1.plot([m['train_loss'] for m in metrics], label='Train Loss')
+    ax1.plot([m['val_loss'] for m in metrics], label='Validation Loss')
     ax1.set_title('Training and Validation Loss')
     ax1.set_xlabel('Epoch')
     ax1.set_ylabel('Loss')
     ax1.legend()
     
     # Accuracy curve
-    ax2.plot(metrics['train_accuracies'], label='Train Accuracy (approx)')
-    ax2.plot(metrics['val_accuracies'], label='Validation Accuracy')
+    ax2.plot([m['train_acc'] for m in metrics], label='Train Accuracy')
+    ax2.plot([m['val_acc'] for m in metrics], label='Validation Accuracy')
     ax2.set_title('Training and Validation Accuracy')
     ax2.set_xlabel('Epoch')
     ax2.set_ylabel('Accuracy')
