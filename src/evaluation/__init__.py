@@ -1,9 +1,10 @@
-"""
-Evaluation Module
-Contains evaluation frameworks for detection and classification models
-"""
-
-from .detection_evaluator import DetectionEvaluator
+# Import all evaluation classes and functions
 from .classification_evaluator import ClassificationEvaluator
+from .detection_evaluator import DetectionEvaluator
+from .googlenet_evaluator import CustomClassificationEvaluator
 
-__all__ = ['DetectionEvaluator', 'ClassificationEvaluator']
+__all__ = [
+    'ClassificationEvaluator',
+    'DetectionEvaluator',
+    'CustomClassificationEvaluator'
+]
