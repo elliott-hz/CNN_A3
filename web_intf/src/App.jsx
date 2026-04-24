@@ -9,6 +9,8 @@ function App() {
   const [imagePreview, setImagePreview] = useState(null);
   const [apiStatus, setApiStatus] = useState('checking');
 
+  const [isLiveMode, setIsLiveMode] = useState(false); // New: Live stream mode toggle
+
   // Check API health on mount
   useEffect(() => {
     const checkApiHealth = async () => {
@@ -35,32 +37,42 @@ function App() {
     }
   };
 
+  const toggleLiveMode = () => {
+    setIsLiveMode(!isLiveMode);
+    // Clear results when switching modes
+    setResults(null);
+    setImagePreview(null);
+  };
+
   return (
     <div className="app">
       {/* Header */}
       <header className="app-header">
         <h1>🐕 Dog Emotion Recognition System</h1>
-        <div className={`status-indicator ${apiStatus}`}>
-          <span className="status-dot"></span>
-          <span className="status-text">
-            {apiStatus === 'connected' && '✅ API Connected'}
-            {apiStatus === 'disconnected' && '❌ API Disconnected'}
-            {apiStatus === 'checking' && '⏳ Connecting...'}
-          </span>
-        </div>
+        <button 
+          className={`live-mode-button ${isLiveMode ? 'active' : ''}`}
+          onClick={toggleLiveMode}
+        >
+          {isLiveMode ? '📹 Exit Live Mode' : '📹 Live-Stream Mode'}
+        </button>
       </header>
 
       {/* Main Content - Unified Upload and Results Area */}
       <main className="app-main">
         <div className="unified-container">
-          <ImageUploader onResults={handleResults} />
+          {/* Hide ImageUploader in live mode */}
+          {!isLiveMode && (
+            <ImageUploader onResults={handleResults} />
+          )}
           
-          {results && imagePreview && (
+          {/* Show ResultsDisplay in both modes, but behavior differs */}
+          {(results && imagePreview && !isLiveMode) || isLiveMode ? (
             <ResultsDisplay 
               results={results}
               imagePreview={imagePreview}
+              isLiveMode={isLiveMode}
             />
-          )}
+          ) : null}
         </div>
       </main>
 

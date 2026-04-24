@@ -1,13 +1,60 @@
 import { useState, useRef, useEffect } from 'react';
 import './ResultsDisplay.css';
 
-const ResultsDisplay = ({ results, imagePreview }) => {
+const ResultsDisplay = ({ results, imagePreview, isLiveMode = false }) => {
   const canvasRef = useRef(null);
+  const videoRef = useRef(null);
   const [imageLoaded, setImageLoaded] = useState(false);
+  const [stream, setStream] = useState(null);
 
-  // Draw bounding boxes and labels on canvas when results change
+  // Start camera stream when in live mode
   useEffect(() => {
-    if (!results || !results.success || !imagePreview || !canvasRef.current) {
+    if (isLiveMode) {
+      startCamera();
+    } else {
+      stopCamera();
+    }
+
+    return () => {
+      stopCamera();
+    };
+  }, [isLiveMode]);
+
+  const startCamera = async () => {
+    try {
+      const mediaStream = await navigator.mediaDevices.getUserMedia({ 
+        video: { 
+          width: { ideal: 640 },
+          height: { ideal: 480 },
+          facingMode: 'user'
+        } 
+      });
+      
+      setStream(mediaStream);
+      
+      if (videoRef.current) {
+        videoRef.current.srcObject = mediaStream;
+      }
+    } catch (error) {
+      console.error('Error accessing camera:', error);
+      alert('Unable to access camera. Please check permissions.');
+    }
+  };
+
+  const stopCamera = () => {
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+      setStream(null);
+    }
+    
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+  };
+
+  // Draw bounding boxes and labels on canvas when results change (static mode only)
+  useEffect(() => {
+    if (isLiveMode || !results || !results.success || !imagePreview || !canvasRef.current) {
       return;
     }
 
@@ -92,7 +139,7 @@ const ResultsDisplay = ({ results, imagePreview }) => {
     };
 
     img.src = imagePreview;
-  }, [results, imagePreview]);
+  }, [results, imagePreview, isLiveMode]);
 
   const getEmotionColor = (emotion) => {
     const colors = {
@@ -116,6 +163,40 @@ const ResultsDisplay = ({ results, imagePreview }) => {
     return emojis[emotion.toLowerCase()] || '🐕';
   };
 
+  // In live mode, show video stream instead of static image
+  if (isLiveMode) {
+    return (
+      <div className="results-display live-mode">
+        <div className="live-video-container">
+          <video 
+            ref={videoRef}
+            autoPlay 
+            playsInline
+            muted
+            className="live-video"
+          />
+          <div className="live-indicator">
+            <span className="live-dot"></span>
+            LIVE STREAM
+          </div>
+          <div className="live-info">
+            <p>📹 Camera active • Real-time video feed</p>
+            <p className="hint">Future: Emotion detection will be added here</p>
+          </div>
+        </div>
+        
+        {/* Empty detections grid placeholder */}
+        <div className="detections-grid empty">
+          <div className="no-detection">
+            <p>🎥 Live Stream Mode Active</p>
+            <p className="hint">Real-time emotion detection coming soon...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Static mode - original behavior
   if (!results || !results.success) {
     return null;
   }

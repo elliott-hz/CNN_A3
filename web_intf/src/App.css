@@ -37,6 +37,50 @@ body {
   font-weight: 600;
 }
 
+/* Live Mode Button */
+.live-mode-button {
+  padding: 10px 20px;
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  border-radius: 8px;
+  background-color: rgba(255, 255, 255, 0.15);
+  color: white;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  backdrop-filter: blur(10px);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.live-mode-button:hover {
+  background-color: rgba(255, 255, 255, 0.25);
+  border-color: rgba(255, 255, 255, 0.8);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.live-mode-button.active {
+  background-color: #ff4757;
+  border-color: #ff4757;
+  animation: livePulse 2s infinite;
+}
+
+.live-mode-button.active:hover {
+  background-color: #ff6b7a;
+  border-color: #ff6b7a;
+}
+
+@keyframes livePulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(255, 71, 87, 0.7);
+  }
+  50% {
+    box-shadow: 0 0 0 10px rgba(255, 71, 87, 0);
+  }
+}
+
 .status-indicator {
   display: flex;
   align-items: center;
