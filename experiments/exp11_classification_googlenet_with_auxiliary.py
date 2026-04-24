@@ -16,7 +16,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from src.models.googlenet_model_with_auxiliary import GoogLeNetClassifierWithAuxiliary
 from src.training.googlenet_trainer import GoogLeNetTrainer
 from src.evaluation.googlenet_evaluator import GoogLeNetEvaluator
-from src.data_processing.emotion_preprocessor import EmotionDataset
+from src.data_processing.emotion_preprocessor import EmotionPreprocessor
 from src.utils.file_utils import create_experiment_directory
 
 
@@ -68,19 +68,19 @@ def run_experiment(use_small_subset=False):
     print(f"Using device: {device}")
     
     # Load datasets
-    train_dataset = EmotionDataset(
+    train_dataset = EmotionPreprocessor(
         split='train',
         dataset_path=config['data']['dataset_path'],
         image_size=config['data']['image_size']
     )
     
-    val_dataset = EmotionDataset(
+    val_dataset = EmotionPreprocessor(
         split='val',
         dataset_path=config['data']['dataset_path'],
         image_size=config['data']['image_size']
     )
     
-    test_dataset = EmotionDataset(
+    test_dataset = EmotionPreprocessor(
         split='test',
         dataset_path=config['data']['dataset_path'],
         image_size=config['data']['image_size']
