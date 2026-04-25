@@ -99,7 +99,7 @@ def main():
     
     training_config = {
         'learning_rate': 0.001,   # Standard learning rate
-        'batch_size': 8,          # Smaller batch due to RCNN complexity
+        'batch_size': 32,          # Smaller batch due to RCNN complexity
         'epochs': 120,            # Increased epochs
         'optimizer': 'adamw',     # AdamW optimizer
         'weight_decay': 1e-4,

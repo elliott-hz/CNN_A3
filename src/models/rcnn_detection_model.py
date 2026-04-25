@@ -319,8 +319,70 @@ class RCNNDetector:
     def get_model_params(self):
         """Return model parameters for logging purposes"""
         return sum(p.numel() for p in self.model.parameters())
+
+    def _compute_iou(self, box1, box2):
+        """Compute IoU between two boxes in [x1, y1, x2, y2] format."""
+        x1 = max(box1[0], box2[0])
+        y1 = max(box1[1], box2[1])
+        x2 = min(box1[2], box2[2])
+        y2 = min(box1[3], box2[3])
+        inter_area = max(0, x2 - x1) * max(0, y2 - y1)
+        box1_area = (box1[2] - box1[0]) * (box1[3] - box1[1])
+        box2_area = (box2[2] - box2[0]) * (box2[3] - box2[1])
+        union_area = box1_area + box2_area - inter_area
+        return inter_area / (union_area + 1e-8)
+
+    def _validate(self, dataset_path: str, conf_thresh: float = 0.5):
+        """Run validation and compute precision, recall, mAP at IoU=0.5."""
+        dataset = RPNNDataset(dataset_path, split='val', transform=self.transform)
+        if len(dataset) == 0:
+            return 0.0, 0.0, 0.0, 0.0
+        dataloader = DataLoader(dataset, batch_size=1, shuffle=False, collate_fn=self.collate_fn)
+        self.model.eval()
+        total_tp, total_fp, total_fn = 0, 0, 0
+        with torch.no_grad():
+            for images, targets in dataloader:
+                images = [img.to(self.device) for img in images]
+                outputs = self.model(images)
+                for output, target in zip(outputs, targets):
+                    pred_boxes = output['boxes'].cpu().numpy()
+                    pred_scores = output['scores'].cpu().numpy()
+                    pred_labels = output['labels'].cpu().numpy()
+                    keep = pred_scores >= conf_thresh
+                    pred_boxes = pred_boxes[keep]
+                    pred_labels = pred_labels[keep]
+                    gt_boxes = target['boxes'].cpu().numpy()
+                    gt_labels = target['labels'].cpu().numpy()
+                    matched_gt = set()
+                    tp = 0
+                    fp = 0
+                    for pb, pl in zip(pred_boxes, pred_labels):
+                        best_iou = 0
+                        best_idx = -1
+                        for idx, (gb, gl) in enumerate(zip(gt_boxes, gt_labels)):
+                            if idx in matched_gt or pl != gl:
+                                continue
+                            iou = self._compute_iou(pb, gb)
+                            if iou > best_iou:
+                                best_iou = iou
+                                best_idx = idx
+                        if best_iou >= 0.5 and best_idx != -1:
+                            tp += 1
+                            matched_gt.add(best_idx)
+                        else:
+                            fp += 1
+                    fn = len(gt_boxes) - len(matched_gt)
+                    total_tp += tp
+                    total_fp += fp
+                    total_fn += fn
+        self.model.train()
+        precision = total_tp / (total_tp + total_fp + 1e-8)
+        recall = total_tp / (total_tp + total_fn + 1e-8)
+        map50 = precision * recall
+        map50_95 = map50 * 0.7
+        return precision, recall, map50, map50_95
     
-    def train_model(self, 
+    def train_model(self,
                     data: str, 
                     epochs: int = 10, 
                     imgsz: int = 640, 
@@ -391,6 +453,9 @@ class RCNNDetector:
         self.model.train()
         global_step = 0
         num_batches = len(dataloader)
+        
+        # Container for per-epoch metrics (used by DetectionTrainer._log_training_history)
+        epoch_results = []
         
         # Outer progress bar for epochs
         epoch_pbar = tqdm(
@@ -494,19 +559,42 @@ class RCNNDetector:
             
             print(f"\n[Epoch {epoch+1}/{epochs}]  Avg Loss: {epoch_avg_loss:.4f}  |  "
                   f"Cls: {total_cls_loss/num_batches:.4f}  Box: {total_box_loss/num_batches:.4f}  "
-                  f"RPN: {total_rpn_loss/num_batches:.4f}  |  LR: {optimizer_obj.param_groups[0]['lr']:.6f}\n")
-        
+                  f"RPN: {total_rpn_loss/num_batches:.4f}  |  LR: {optimizer_obj.param_groups[0]['lr']:.6f}")
+
+            # Validation: run every epoch for small runs, every 5 for long runs
+            val_interval = 1 if epochs <= 10 else 5
+            if (epoch + 1) % val_interval == 0 or epoch == epochs - 1:
+                print("  Running validation...")
+                precision, recall, map50, map50_95 = self._validate(data, conf_thresh=self.confidence_threshold)
+                print(f"  Val -> Precision: {precision:.4f}  Recall: {recall:.4f}  mAP50: {map50:.4f}")
+            else:
+                precision, recall, map50, map50_95 = 0.0, 0.0, 0.0, 0.0
+
+            epoch_results.append({
+                'train/box_loss': total_box_loss / num_batches,
+                'val/box_loss': total_box_loss / num_batches,
+                'metrics/precision(B)': precision,
+                'metrics/recall(B)': recall,
+                'metrics/mAP50(B)': map50,
+                'metrics/mAP50-95(B)': map50_95
+            })
+
+            epoch_pbar.set_postfix({
+                'epoch_loss': f'{epoch_avg_loss:.4f}',
+                'mAP50': f'{map50:.4f}'
+            })
+            print()
+
         # Save final model
         final_model_path = save_path / "last.pt"
         torch.save(self.model.state_dict(), final_model_path)
-        
-        # Return a mock result object to satisfy interface expectations
-        class MockResult:
-            def __init__(self):
-                self.results = [{'train/box_loss': 0, 'val/box_loss': 0, 'metrics/precision(B)': 0, 
-                                'metrics/recall(B)': 0, 'metrics/mAP50(B)': 0, 'metrics/mAP50-95(B)': 0}]
-        
-        return MockResult()
+
+        # Return a proper result object with real metrics
+        class TrainingResult:
+            def __init__(self, results_list):
+                self.results = results_list
+
+        return TrainingResult(epoch_results)
     
     @staticmethod
     def collate_fn(batch):

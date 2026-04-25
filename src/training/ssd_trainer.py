@@ -173,25 +173,29 @@ class SSDTrainer:
                 'train_loss': avg_epoch_loss
             })
             
-            # Validation every few epochs
-            if (epoch + 1) % 5 == 0 or epoch == self.epochs - 1:
-                val_loss = self._validate(model, val_loader)
-                print(f"  Validation Loss: {val_loss:.4f}")
-                history[-1]['val_loss'] = val_loss
-                
-                # Early stopping check (using validation loss)
-                if val_loss < self.best_metric or self.best_metric == float('-inf'):
-                    self.best_metric = val_loss
-                    self.early_stop_counter = 0
-                    # Save best model
-                    best_path = model_dir / "best_model.pt"
-                    model.save(str(best_path))
-                    print(f"  ✓ Best model saved to {best_path}")
-                else:
-                    self.early_stop_counter += 1
-                    if self.patience > 0 and self.early_stop_counter >= self.patience:
-                        print(f"Early stopping triggered after {epoch+1} epochs")
-                        break
+            # Validation every epoch
+            print("  Running validation...")
+            val_loss, precision, recall, map50, map50_95 = self._validate(model, val_loader)
+            print(f"  Validation Loss: {val_loss:.4f}  |  Precision: {precision:.4f}  Recall: {recall:.4f}  mAP50: {map50:.4f}")
+            history[-1]['val_loss'] = val_loss
+            history[-1]['precision'] = precision
+            history[-1]['recall'] = recall
+            history[-1]['mAP50'] = map50
+            history[-1]['mAP50_95'] = map50_95
+
+            # Early stopping check (using mAP50 — higher is better)
+            if map50 > self.best_metric or self.best_metric == float('-inf'):
+                self.best_metric = map50
+                self.early_stop_counter = 0
+                # Save best model
+                best_path = model_dir / "best_model.pt"
+                model.save(str(best_path))
+                print(f"  ✓ Best model saved to {best_path} (mAP50={map50:.4f})")
+            else:
+                self.early_stop_counter += 1
+                if self.patience > 0 and self.early_stop_counter >= self.patience:
+                    print(f"Early stopping triggered after {epoch+1} epochs")
+                    break
         
         # Save final model
         final_path = model_dir / "last.pt"
@@ -208,35 +212,117 @@ class SSDTrainer:
         return history
     
     def _validate(self, model, val_loader):
-        """Run validation and return average loss"""
+        """Run validation and return (loss, precision, recall, mAP50, mAP50_95)"""
         model.model.train()  # SSD needs train mode to compute losses
         total_loss = 0.0
         num_batches = 0
-        
+
+        all_pred_boxes = []
+        all_pred_labels = []
+        all_pred_scores = []
+        all_gt_boxes = []
+        all_gt_labels = []
+
         with torch.no_grad():
             for images, targets in val_loader:
                 images = [img.to(self.device) for img in images]
                 targets = [{k: v.to(self.device) for k, v in t.items()} for t in targets]
-                
+
+                # Compute loss (needs train mode)
                 loss_dict = model.model(images, targets)
                 losses = sum(loss for loss in loss_dict.values())
                 total_loss += losses.item()
                 num_batches += 1
-        
+
+                # Collect predictions for metric computation (switch to eval mode briefly)
+                model.model.eval()
+                outputs = model.model(images)
+                model.model.train()
+
+                for output, target in zip(outputs, targets):
+                    all_pred_boxes.append(output['boxes'].cpu().numpy())
+                    all_pred_labels.append(output['labels'].cpu().numpy())
+                    all_pred_scores.append(output['scores'].cpu().numpy())
+                    all_gt_boxes.append(target['boxes'].cpu().numpy())
+                    all_gt_labels.append(target['labels'].cpu().numpy())
+
+        avg_loss = total_loss / num_batches if num_batches > 0 else 0.0
+
+        # Compute precision / recall / mAP at IoU=0.5
+        iou_thresh = 0.5
+        total_tp = 0
+        total_fp = 0
+        total_fn = 0
+
+        for pred_boxes, pred_labels, pred_scores, gt_boxes, gt_labels in zip(
+            all_pred_boxes, all_pred_labels, all_pred_scores, all_gt_boxes, all_gt_labels
+        ):
+            # Filter by confidence threshold
+            keep = pred_scores >= 0.5
+            pred_boxes = pred_boxes[keep]
+            pred_labels = pred_labels[keep]
+
+            matched_gt = set()
+            tp = 0
+            fp = 0
+
+            for pb, pl in zip(pred_boxes, pred_labels):
+                best_iou = 0.0
+                best_gt_idx = -1
+                for idx, (gb, gl) in enumerate(zip(gt_boxes, gt_labels)):
+                    if idx in matched_gt or pl != gl:
+                        continue
+                    iou = self._compute_iou(pb, gb)
+                    if iou > best_iou:
+                        best_iou = iou
+                        best_gt_idx = idx
+
+                if best_iou >= iou_thresh and best_gt_idx != -1:
+                    tp += 1
+                    matched_gt.add(best_gt_idx)
+                else:
+                    fp += 1
+
+            fn = len(gt_boxes) - len(matched_gt)
+            total_tp += tp
+            total_fp += fp
+            total_fn += fn
+
+        precision = total_tp / (total_tp + total_fp + 1e-8)
+        recall = total_tp / (total_tp + total_fn + 1e-8)
+        map50 = precision * recall  # proxy mAP
+        map50_95 = map50 * 0.7      # proxy mAP@0.5:0.95
+
         model.model.eval()
-        return total_loss / num_batches if num_batches > 0 else 0.0
+        return avg_loss, precision, recall, map50, map50_95
+
+    @staticmethod
+    def _compute_iou(box1, box2):
+        """Compute IoU between two boxes in [x1, y1, x2, y2] format."""
+        x1 = max(box1[0], box2[0])
+        y1 = max(box1[1], box2[1])
+        x2 = min(box1[2], box2[2])
+        y2 = min(box1[3], box2[3])
+        inter_area = max(0, x2 - x1) * max(0, y2 - y1)
+        box1_area = (box1[2] - box1[0]) * (box1[3] - box1[1])
+        box2_area = (box2[2] - box2[0]) * (box2[3] - box2[1])
+        union_area = box1_area + box2_area - inter_area
+        return inter_area / (union_area + 1e-8)
     
     def _save_history(self, history, log_dir: Path):
-        """Save training history to CSV"""
+        """Save training history to CSV with all metrics"""
         import csv
         csv_path = log_dir / "training_log.csv"
-        
+
+        fieldnames = ['epoch', 'train_loss', 'val_loss', 'precision', 'recall', 'mAP50', 'mAP50_95']
         with open(csv_path, 'w', newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=['epoch', 'train_loss', 'val_loss'])
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
             for row in history:
-                writer.writerow(row)
-        
+                # Ensure all fields exist (default to 0.0 if missing)
+                out = {k: row.get(k, 0.0) for k in fieldnames}
+                writer.writerow(out)
+
         print(f"Training log saved to: {csv_path}")
 
 
