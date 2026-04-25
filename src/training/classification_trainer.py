@@ -64,14 +64,22 @@ class AugmentedDataset(Dataset):
         img = self.X[idx]
         label = self.y[idx]
         
+        # Handle both normalized [0,1] and raw [0,255] images
+        if img.max() <= 1.0:
+            # Image is already normalized [0, 1], convert to uint8 for PIL
+            img_uint8 = (img * 255.0).astype('uint8')
+        else:
+            # Image is in [0, 255] range
+            img_uint8 = img.astype('uint8')
+        
         # Convert numpy array to PIL Image
-        pil_img = Image.fromarray(img.astype('uint8'))
+        pil_img = Image.fromarray(img_uint8)
         
         # Apply augmentation if enabled
         if self.transform:
             pil_img = self.transform(pil_img)
         
-        # Convert to tensor
+        # Convert to tensor (ToTensor automatically normalizes to [0, 1])
         tensor_img = transforms.ToTensor()(pil_img)
         
         return tensor_img, label
