@@ -1,0 +1,231 @@
+.video-results-display {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.video-section {
+  width: 100%;
+}
+
+.video-container {
+  position: relative;
+  width: 100%;
+  max-width: 800px;
+  margin: 0 auto;
+  background: #000;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  aspect-ratio: 16 / 9;
+}
+
+.video-player {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+}
+
+/* Annotation overlay - positioned on top of video */
+.annotation-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none; /* Allow clicks to pass through to video controls */
+  z-index: 10;
+}
+
+.processing-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  z-index: 20;
+  color: white;
+  gap: 10px;
+}
+
+.processing-overlay .progress-text {
+  font-size: 24px;
+  font-weight: bold;
+  color: #4CAF50;
+}
+
+.processing-overlay .hint {
+  font-size: 14px;
+  color: #ccc;
+  margin-top: 5px;
+}
+
+.processing-overlay.error {
+  background: rgba(244, 67, 54, 0.9);
+}
+
+.processing-overlay .error-icon {
+  font-size: 48px;
+  margin-bottom: 10px;
+}
+
+.processing-overlay .error-message {
+  font-size: 16px;
+  text-align: center;
+  padding: 0 20px;
+}
+
+.video-controls {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  padding: 15px;
+  background: #f5f5f5;
+  border-radius: 8px;
+  margin-top: 10px;
+}
+
+.control-button {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 6px;
+  background: #2196F3;
+  color: white;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.control-button:hover:not(:disabled) {
+  background: #1976D2;
+  transform: translateY(-2px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.control-button:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ccc;
+}
+
+.status-dot.idle {
+  background: #FFC107;
+  animation: pulse 1.5s infinite;
+}
+
+.status-dot.analyzing {
+  background: #2196F3;
+  animation: pulse 1s infinite;
+}
+
+.status-dot.complete {
+  background: #4CAF50;
+}
+
+.status-dot.error {
+  background: #f44336;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.status-text {
+  font-size: 14px;
+  color: #666;
+  font-weight: 500;
+}
+
+.video-info {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  font-size: 14px;
+  color: #666;
+}
+
+.results-section {
+  padding: 20px;
+  background: #f9f9f9;
+  border-radius: 8px;
+}
+
+.analysis-summary {
+  text-align: center;
+}
+
+.summary-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 10px;
+}
+
+.summary-text {
+  font-size: 16px;
+  color: #666;
+  margin-bottom: 8px;
+}
+
+.hint {
+  font-size: 14px;
+  color: #999;
+  font-style: italic;
+}
+
+.no-detection {
+  text-align: center;
+  padding: 40px;
+  color: #666;
+}
+
+.no-detection p {
+  margin: 10px 0;
+}
+
+.no-detection .hint {
+  font-size: 14px;
+  color: #999;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .video-controls {
+    flex-direction: column;
+    gap: 10px;
+  }
+  
+  .control-button {
+    width: 100%;
+  }
+  
+  .video-info {
+    justify-content: center;
+  }
+}

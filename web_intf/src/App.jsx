@@ -1,15 +1,25 @@
 import { useState, useEffect } from 'react';
 import ImageUploader from './components/ImageUploader';
+import VideoUploader from './components/VideoUploader';
 import ResultsDisplay from './components/ResultsDisplay';
+import VideoResultsDisplay from './components/VideoResultsDisplay';
+import LiveStream from './components/LiveStream';
 import { checkHealth } from './services/api';
 import './App.css';
 
+// Mode constants
+const MODES = {
+  IMAGE: 'image',
+  VIDEO: 'video',
+  LIVE: 'live'
+};
+
 function App() {
+  const [currentMode, setCurrentMode] = useState(MODES.IMAGE);
   const [results, setResults] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
+  const [selectedVideo, setSelectedVideo] = useState(null);
   const [apiStatus, setApiStatus] = useState('checking');
-
-  const [isLiveMode, setIsLiveMode] = useState(false); // New: Live stream mode toggle
 
   // Check API health on mount
   useEffect(() => {
@@ -26,8 +36,7 @@ function App() {
     checkApiHealth();
   }, []);
 
-  const handleResults = (newResults, newImagePreview) => {
-    // Clear previous results when new image is being processed
+  const handleImageResults = (newResults, newImagePreview) => {
     if (!newResults && !newImagePreview) {
       setResults(null);
       setImagePreview(null);
@@ -37,11 +46,21 @@ function App() {
     }
   };
 
-  const toggleLiveMode = () => {
-    setIsLiveMode(!isLiveMode);
-    // Clear results when switching modes
+  const handleVideoSelect = (videoFile) => {
+    setSelectedVideo(videoFile);
+    // Clear image results when switching to video mode
+    if (videoFile) {
+      setResults(null);
+      setImagePreview(null);
+    }
+  };
+
+  const switchMode = (mode) => {
+    setCurrentMode(mode);
+    // Clear all results when switching modes
     setResults(null);
     setImagePreview(null);
+    setSelectedVideo(null);
   };
 
   return (
@@ -49,30 +68,63 @@ function App() {
       {/* Header */}
       <header className="app-header">
         <h1>🐕 Dog Emotion Recognition System</h1>
-        <button 
-          className={`live-mode-button ${isLiveMode ? 'active' : ''}`}
-          onClick={toggleLiveMode}
-        >
-          {isLiveMode ? '📹 Exit Live Mode' : '📹 Live-Stream Mode'}
-        </button>
+        <div className="mode-buttons">
+          <button 
+            className={`mode-button ${currentMode === MODES.IMAGE ? 'active' : ''}`}
+            onClick={() => switchMode(MODES.IMAGE)}
+          >
+            📷 Upload Image
+          </button>
+          <button 
+            className={`mode-button ${currentMode === MODES.VIDEO ? 'active' : ''}`}
+            onClick={() => switchMode(MODES.VIDEO)}
+          >
+            🎬 Upload Video
+          </button>
+          <button 
+            className={`mode-button ${currentMode === MODES.LIVE ? 'active' : ''}`}
+            onClick={() => switchMode(MODES.LIVE)}
+          >
+            📹 Live Stream
+          </button>
+        </div>
       </header>
 
-      {/* Main Content - Unified Upload and Results Area */}
+      {/* Main Content */}
       <main className="app-main">
         <div className="unified-container">
-          {/* Hide ImageUploader in live mode */}
-          {!isLiveMode && (
-            <ImageUploader onResults={handleResults} />
+          {/* Image Mode */}
+          {currentMode === MODES.IMAGE && (
+            <>
+              <ImageUploader onResults={handleImageResults} />
+              {(results && imagePreview) && (
+                <ResultsDisplay 
+                  results={results}
+                  imagePreview={imagePreview}
+                  isLiveMode={false}
+                />
+              )}
+            </>
           )}
-          
-          {/* Show ResultsDisplay in both modes, but behavior differs */}
-          {(results && imagePreview && !isLiveMode) || isLiveMode ? (
-            <ResultsDisplay 
-              results={results}
-              imagePreview={imagePreview}
-              isLiveMode={isLiveMode}
-            />
-          ) : null}
+
+          {/* Video Mode */}
+          {currentMode === MODES.VIDEO && (
+            <>
+              {!selectedVideo ? (
+                <VideoUploader onVideoSelect={handleVideoSelect} />
+              ) : (
+                <VideoResultsDisplay 
+                  videoFile={selectedVideo}
+                  isProcessing={false}
+                />
+              )}
+            </>
+          )}
+
+          {/* Live Stream Mode */}
+          {currentMode === MODES.LIVE && (
+            <LiveStream />
+          )}
         </div>
       </main>
 
