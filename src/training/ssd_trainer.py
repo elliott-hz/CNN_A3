@@ -293,7 +293,8 @@ class SSDTrainer:
         map50 = precision * recall  # proxy mAP
         map50_95 = map50 * 0.7      # proxy mAP@0.5:0.95
 
-        model.model.eval()
+        # Leave model in train mode so the next training epoch works correctly
+        model.model.train()
         return avg_loss, precision, recall, map50, map50_95
 
     @staticmethod
