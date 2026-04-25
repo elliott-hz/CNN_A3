@@ -125,14 +125,14 @@ def main():
     
     model_config = BASELINE_CLASSIFICATION_CONFIG.copy()
     
-    # Adjust training configuration for 120 epochs
+    # Adjust training configuration to prevent overfitting
     training_config = {
-        'learning_rate': 0.001,
+        'learning_rate': 0.0005,  # Reduced from 0.001 to slow down learning
         'batch_size': 32,
-        'epochs': 120,  # Increased from 30 to 120
+        'epochs': 120,
         'optimizer': 'adam',
-        'weight_decay': 1e-4,
-        'early_stopping_patience': 0,  # Increased to 15 for 120 epochs (12.5% of epochs)
+        'weight_decay': 5e-4,  # Increased from 1e-4 for stronger regularization
+        'early_stopping_patience': 15,  # Changed from 0 to enable early stopping
         'use_amp': True,
         'gradient_accumulation_steps': 1,
         'label_smoothing': 0.1,

@@ -6,6 +6,7 @@ Training framework for classification models (ResNet50)
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
+import torchvision.transforms as transforms
 import numpy as np
 from pathlib import Path
 from datetime import datetime
@@ -343,7 +344,7 @@ class ClassificationTrainer:
     
     def _create_dataloader(self, X, y, train: bool = True) -> DataLoader:
         """
-        Create PyTorch DataLoader from numpy arrays.
+        Create PyTorch DataLoader from numpy arrays with optional data augmentation.
         
         Args:
             X: Images array (N, H, W, C)
@@ -353,10 +354,45 @@ class ClassificationTrainer:
         Returns:
             PyTorch DataLoader
         """
-        # Convert to tensors
-        # X shape: (N, H, W, C) -> (N, C, H, W)
-        X_tensor = torch.FloatTensor(X).permute(0, 3, 1, 2)
+        # Convert labels to tensor
         y_tensor = torch.LongTensor(y)
+        
+        if train:
+            # Apply data augmentation for training
+            # Define augmentation transforms
+            augment_transform = transforms.Compose([
+                transforms.RandomHorizontalFlip(p=0.5),  # Random horizontal flip
+                transforms.RandomRotation(degrees=15),   # Random rotation up to 15 degrees
+                transforms.ColorJitter(                  # Random color jitter
+                    brightness=0.2,
+                    contrast=0.2,
+                    saturation=0.2,
+                    hue=0.1
+                ),
+                transforms.RandomAffine(                 # Random affine transformation
+                    degrees=0,
+                    translate=(0.1, 0.1),
+                    scale=(0.9, 1.1)
+                ),
+            ])
+            
+            # Convert to PIL images for augmentation, then to tensor
+            from PIL import Image
+            augmented_images = []
+            for img in X:
+                # Convert numpy array (H, W, C) to PIL Image
+                pil_img = Image.fromarray(img.astype('uint8'))
+                # Apply augmentation
+                aug_img = augment_transform(pil_img)
+                # Convert to tensor and normalize
+                tensor_img = transforms.ToTensor()(aug_img)
+                augmented_images.append(tensor_img)
+            
+            X_tensor = torch.stack(augmented_images)
+        else:
+            # For validation/test, just convert to tensor without augmentation
+            # X shape: (N, H, W, C) -> (N, C, H, W)
+            X_tensor = torch.FloatTensor(X).permute(0, 3, 1, 2)
         
         # Create dataset
         dataset = TensorDataset(X_tensor, y_tensor)
