@@ -50,18 +50,19 @@ class GoogLeNetClassifierWithAuxiliary(GoogLeNetClassifier):
             During training: tuple of (main_output, aux1_output, aux2_output)
             During inference: main_output only
         """
-        # Initial layers
+        # Initial layers (with BatchNorm)
         x = self.conv1(x)
+        x = self.bn1(x)
         x = nn.functional.relu(x, inplace=True)
         x = self.maxpool1(x)
-        x = self.lrn1(x)
         
         x = self.conv2(x)
+        x = self.bn2(x)
         x = nn.functional.relu(x, inplace=True)
         x = self.conv3(x)
+        x = self.bn3(x)
         x = nn.functional.relu(x, inplace=True)
         x = self.maxpool2(x)
-        x = self.lrn2(x)
         
         # Inception blocks
         x = self.inception3a(x)
