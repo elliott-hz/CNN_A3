@@ -65,14 +65,16 @@ class AuxiliaryClassifier(nn.Module):
     def __init__(self, in_channels: int, num_classes: int = 5):
         super(AuxiliaryClassifier, self).__init__()
         
-        self.avg_pool = nn.AvgPool2d(kernel_size=5, stride=3)
+        # Use adaptive pooling to handle variable spatial dimensions robustly
+        self.avg_pool = nn.AdaptiveAvgPool2d((4, 4))
         self.conv = nn.Conv2d(in_channels, 128, kernel_size=1)
         self.relu = nn.ReLU(inplace=True)
-        self.fc1 = nn.Linear(128 * 4 * 4, 1024)  # Assuming input is 224x224
+        self.fc1 = nn.Linear(128 * 4 * 4, 1024)
+        self.dropout = nn.Dropout(p=0.5)  # Reduced from 0.7 to prevent underfitting
         self.fc2 = nn.Linear(1024, num_classes)
-        self.dropout = nn.Dropout(p=0.7)
         
     def forward(self, x):
+        # Adaptive pooling ensures fixed output size (4x4) regardless of input spatial dims
         x = self.avg_pool(x)
         x = self.conv(x)
         x = self.relu(x)
@@ -144,9 +146,11 @@ class GoogLeNetClassifier(nn.Module):
         self.dropout = nn.Dropout(p=self.dropout_rate)
         self.classifier = nn.Linear(1024, self.num_classes)
         
-        # Auxiliary classifiers (not used during inference)
-        # self.aux_classifier1 = AuxiliaryClassifier(512, self.num_classes)
-        # self.aux_classifier2 = AuxiliaryClassifier(528, self.num_classes)
+        # Auxiliary classifiers (used during training to improve gradient flow)
+        # aux1 follows inception4a (output channels 512)
+        # aux2 follows inception4d (output channels 528)
+        self.aux_classifier1 = AuxiliaryClassifier(512, self.num_classes)
+        self.aux_classifier2 = AuxiliaryClassifier(528, self.num_classes)
         
         # Initialize weights
         self._initialize_weights()
@@ -169,7 +173,8 @@ class GoogLeNetClassifier(nn.Module):
             x: Input tensor (batch_size, channels, height, width)
             
         Returns:
-            Classification logits
+            If training: Tuple of (main_logits, aux_logits1, aux_logits2)
+            If evaluating: Main classification logits only
         """
         # Initial layers
         x = self.conv1(x)
@@ -190,9 +195,17 @@ class GoogLeNetClassifier(nn.Module):
         x = self.maxpool3(x)
         
         x = self.inception4a(x)
+        # Auxiliary classifier 1
+        if self.training:
+            aux1 = self.aux_classifier1(x)
+        
         x = self.inception4b(x)
         x = self.inception4c(x)
         x = self.inception4d(x)
+        # Auxiliary classifier 2
+        if self.training:
+            aux2 = self.aux_classifier2(x)
+            
         x = self.inception4e(x)
         x = self.maxpool4(x)
         
@@ -207,7 +220,10 @@ class GoogLeNetClassifier(nn.Module):
         x = self.dropout(x)
         x = self.classifier(x)
         
-        return x
+        if self.training:
+            return x, aux1, aux2
+        else:
+            return x
     
     def unfreeze_backbone(self, unfreeze_all: bool = False):
         """

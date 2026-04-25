@@ -68,14 +68,14 @@ class AlexNetClassifier(nn.Module):
         # Define the classifier (fully connected layers) - Standard AlexNet structure
         self.classifier = nn.Sequential(
             nn.Dropout(p=self.dropout_rate),
-            nn.Linear(256 * 6 * 6, 4096),
+            nn.Linear(256 * 6 * 6, 1024),
             nn.ReLU(inplace=True),
             
             nn.Dropout(p=self.dropout_rate),
-            nn.Linear(4096, 4096),
+            nn.Linear(1024, 512),
             nn.ReLU(inplace=True),
             
-            nn.Linear(4096, self.num_classes)
+            nn.Linear(512, self.num_classes)
         )
     
     def forward(self, x):

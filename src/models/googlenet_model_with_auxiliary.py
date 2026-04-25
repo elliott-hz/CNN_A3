@@ -29,10 +29,14 @@ class GoogLeNetClassifierWithAuxiliary(GoogLeNetClassifier):
         """
         super(GoogLeNetClassifierWithAuxiliary, self).__init__(config)
         
-        # Enable auxiliary classifiers with corrected input channels
-        # Auxiliary classifier 1 connects after inception4a which outputs 512 channels
+        # Enable auxiliary classifiers with CORRECTED input channels
+        # Auxiliary classifier 1 connects after inception4a which outputs 480 channels
+        # inception4a: 192(1x1) + 208(3x3) + 48(5x5) + 64(pool_proj) = 512 ❌ WRONG
+        # Actually: 192 + 208 + 48 + 64 = 512 ✓ CORRECT
         self.aux_classifier1 = AuxiliaryClassifier(512, self.num_classes)
-        # Auxiliary classifier 2 connects after inception4d which outputs 528 channels
+        
+        # Auxiliary classifier 2 connects after inception4d which outputs 528 channels  
+        # inception4d: 112(1x1) + 288(3x3) + 64(5x5) + 64(pool_proj) = 528 ✓ CORRECT
         self.aux_classifier2 = AuxiliaryClassifier(528, self.num_classes)
     
     def forward(self, x):

@@ -84,6 +84,8 @@ class GoogLeNetTrainer:
         Returns:
             Tuple of (train_loader, val_loader)
         """
+        from torchvision import transforms
+        
         # Convert to PyTorch tensors
         X_train_tensor = torch.from_numpy(X_train).permute(0, 3, 1, 2).float()  # NHWC to NCHW
         y_train_tensor = torch.from_numpy(y_train).long()
@@ -94,18 +96,21 @@ class GoogLeNetTrainer:
         train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
         val_dataset = TensorDataset(X_valid_tensor, y_valid_tensor)
         
-        # Create dataloaders
+        # Create dataloaders with improved settings
         train_loader = DataLoader(
             train_dataset,
             batch_size=self.batch_size,
             shuffle=True,
-            num_workers=2
+            num_workers=4,  # Increased for faster loading
+            pin_memory=True,  # Faster GPU transfer
+            drop_last=True  # Drop last incomplete batch for BN stability
         )
         val_loader = DataLoader(
             val_dataset,
             batch_size=self.batch_size,
             shuffle=False,
-            num_workers=2
+            num_workers=4,
+            pin_memory=True
         )
         
         return train_loader, val_loader
@@ -167,8 +172,21 @@ class GoogLeNetTrainer:
             optimizer_type=self.optimizer_type
         )
         
+        # Setup learning rate scheduler - IMPROVED
+        self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, 
+            mode='min', 
+            factor=0.5, 
+            patience=5, 
+            verbose=True,
+            min_lr=1e-6
+        )
+        
         # Setup scaler for mixed precision
         scaler = torch.cuda.amp.GradScaler() if self.use_amp else None
+        
+        # Gradient clipping value
+        max_grad_norm = 1.0
         
         # Create output directories
         model_dir = Path(output_dir) / "models"
@@ -213,6 +231,11 @@ class GoogLeNetTrainer:
                             loss = criterion(outputs, target)
                     
                     scaler.scale(loss).backward()
+                    
+                    # Gradient clipping
+                    scaler.unscale_(optimizer)
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
+                    
                     scaler.step(optimizer)
                     scaler.update()
                 else:
@@ -227,6 +250,10 @@ class GoogLeNetTrainer:
                         loss = criterion(outputs, target)
                     
                     loss.backward()
+                    
+                    # Gradient clipping
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
+                    
                     optimizer.step()
                 
                 # Calculate accuracy
@@ -351,11 +378,12 @@ class GoogLeNetTrainer:
             val_loss: Current validation loss
             epoch: Current epoch
         """
-        # Simple step decay
-        if epoch > 0 and epoch % 10 == 0:
-            for param_group in optimizer.param_groups:
-                param_group['lr'] *= 0.5
-            print(f"  Learning rate reduced to {optimizer.param_groups[0]['lr']:.6f}")
+        # Use ReduceLROnPlateau scheduler if available
+        if hasattr(self, 'scheduler'):
+            self.scheduler.step(val_loss)
+            current_lr = optimizer.param_groups[0]['lr']
+            if epoch > 0 and epoch % 5 == 0:
+                print(f"  Current learning rate: {current_lr:.6f}")
     
     def _save_training_log(self, log_dir):
         """

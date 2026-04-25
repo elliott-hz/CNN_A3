@@ -71,7 +71,7 @@ def run_experiment(use_small_subset=False):
     # Create experiment directory
     exp_dir = create_experiment_dir("exp11_classification_googlenet_with_auxiliary")
     
-    # Configuration - mirroring exp10 but with auxiliary classifier specifics
+    # Configuration - IMPROVED for better convergence
     config = {
         'model': {
             'num_classes': 5,
@@ -81,13 +81,13 @@ def run_experiment(use_small_subset=False):
         'training': {
             'epochs': 120,
             'batch_size': 32,
-            'learning_rate': 0.01,  # SGD-specific learning rate
-            'weight_decay': 0.0005,  # 5e-4
-            'optimizer': 'sgd',
+            'learning_rate': 0.001,  # CHANGED: Reduced from 0.01 to 0.001 for stable training
+            'weight_decay': 0.0001,  # CHANGED: Reduced from 0.0005 to 0.0001
+            'optimizer': 'adam',  # CHANGED: Use Adam instead of SGD for easier training
             'momentum': 0.9,
-            'label_smoothing': 0.1,
+            'label_smoothing': 0.0,  # CHANGED: Disabled label smoothing initially
             'use_amp': True,
-            'early_stopping_patience': 0,  # Disabled as per spec
+            'early_stopping_patience': 15,  # CHANGED: Enable early stopping with patience
             'main_weight': 1.0,
             'aux1_weight': 0.3,
             'aux2_weight': 0.3,

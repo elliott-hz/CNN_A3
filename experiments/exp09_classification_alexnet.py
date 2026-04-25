@@ -127,10 +127,10 @@ def main():
     
     # Adjust training configuration for 120 epochs
     training_config = {
-        'learning_rate': 0.001,
+        'learning_rate': 0.0001,
         'batch_size': 32,
         'epochs': 120,
-        'optimizer': 'adam',
+        'optimizer': 'adamw',
         'weight_decay': 1e-4,
         'early_stopping_patience': 0,
         'use_amp': True,
