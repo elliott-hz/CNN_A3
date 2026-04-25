@@ -12,6 +12,7 @@ class InceptionBlock(nn.Module):
     """
     Inception block as described in the GoogLeNet paper.
     Each inception block contains parallel conv layers of different sizes.
+    Modern implementation includes Batch Normalization for stable training.
     """
     
     def __init__(self, in_channels: int, ch1x1: int, ch3x3_reduce: int, ch3x3: int, 
@@ -21,22 +22,27 @@ class InceptionBlock(nn.Module):
         # 1x1 conv branch
         self.branch1 = nn.Sequential(
             nn.Conv2d(in_channels, ch1x1, kernel_size=1),
+            nn.BatchNorm2d(ch1x1),
             nn.ReLU(inplace=True)
         )
         
         # 1x1 -> 3x3 conv branch
         self.branch2 = nn.Sequential(
             nn.Conv2d(in_channels, ch3x3_reduce, kernel_size=1),
+            nn.BatchNorm2d(ch3x3_reduce),
             nn.ReLU(inplace=True),
             nn.Conv2d(ch3x3_reduce, ch3x3, kernel_size=3, padding=1),
+            nn.BatchNorm2d(ch3x3),
             nn.ReLU(inplace=True)
         )
         
         # 1x1 -> 5x5 conv branch
         self.branch3 = nn.Sequential(
             nn.Conv2d(in_channels, ch5x5_reduce, kernel_size=1),
+            nn.BatchNorm2d(ch5x5_reduce),
             nn.ReLU(inplace=True),
             nn.Conv2d(ch5x5_reduce, ch5x5, kernel_size=5, padding=2),
+            nn.BatchNorm2d(ch5x5),
             nn.ReLU(inplace=True)
         )
         
@@ -44,6 +50,7 @@ class InceptionBlock(nn.Module):
         self.branch4 = nn.Sequential(
             nn.MaxPool2d(kernel_size=3, stride=1, padding=1),
             nn.Conv2d(in_channels, pool_proj, kernel_size=1),
+            nn.BatchNorm2d(pool_proj),
             nn.ReLU(inplace=True)
         )
     
@@ -68,8 +75,10 @@ class AuxiliaryClassifier(nn.Module):
         # Use adaptive pooling to handle variable spatial dimensions robustly
         self.avg_pool = nn.AdaptiveAvgPool2d((4, 4))
         self.conv = nn.Conv2d(in_channels, 128, kernel_size=1)
+        self.bn = nn.BatchNorm2d(128)
         self.relu = nn.ReLU(inplace=True)
         self.fc1 = nn.Linear(128 * 4 * 4, 1024)
+        self.bn_fc = nn.BatchNorm1d(1024)
         self.dropout = nn.Dropout(p=0.5)  # Reduced from 0.7 to prevent underfitting
         self.fc2 = nn.Linear(1024, num_classes)
         
@@ -77,9 +86,11 @@ class AuxiliaryClassifier(nn.Module):
         # Adaptive pooling ensures fixed output size (4x4) regardless of input spatial dims
         x = self.avg_pool(x)
         x = self.conv(x)
+        x = self.bn(x)
         x = self.relu(x)
         x = torch.flatten(x, 1)
         x = self.fc1(x)
+        x = self.bn_fc(x)
         x = self.relu(x)
         x = self.dropout(x)
         x = self.fc2(x)
@@ -114,15 +125,18 @@ class GoogLeNetClassifier(nn.Module):
         self.dropout_rate = config.get('dropout_rate', 0.4)
         self.freeze_backbone = config.get('freeze_backbone', False)
         
-        # Initial conv layers
+        # Initial conv layers (with BatchNorm for stable training)
         self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3)
+        self.bn1 = nn.BatchNorm2d(64)
         self.maxpool1 = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.lrn1 = nn.LocalResponseNorm(size=5, alpha=0.0001, beta=0.75)
+        # Removed LRN1 - BatchNorm is more effective
         
         self.conv2 = nn.Conv2d(64, 64, kernel_size=1)
+        self.bn2 = nn.BatchNorm2d(64)
         self.conv3 = nn.Conv2d(64, 192, kernel_size=3, padding=1)
+        self.bn3 = nn.BatchNorm2d(192)
         self.maxpool2 = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.lrn2 = nn.LocalResponseNorm(size=5, alpha=0.0001, beta=0.75)
+        # Removed LRN2 - BatchNorm is more effective
         
         # Inception blocks
         self.inception3a = InceptionBlock(192, 64, 96, 128, 16, 32, 32)
@@ -178,16 +192,17 @@ class GoogLeNetClassifier(nn.Module):
         """
         # Initial layers
         x = self.conv1(x)
+        x = self.bn1(x)
         x = nn.functional.relu(x, inplace=True)
         x = self.maxpool1(x)
-        x = self.lrn1(x)
         
         x = self.conv2(x)
+        x = self.bn2(x)
         x = nn.functional.relu(x, inplace=True)
         x = self.conv3(x)
+        x = self.bn3(x)
         x = nn.functional.relu(x, inplace=True)
         x = self.maxpool2(x)
-        x = self.lrn2(x)
         
         # Inception blocks
         x = self.inception3a(x)

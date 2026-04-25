@@ -71,26 +71,26 @@ def run_experiment(use_small_subset=False):
     # Create experiment directory
     exp_dir = create_experiment_dir("exp11_classification_googlenet_with_auxiliary")
     
-    # Configuration - IMPROVED for better convergence
+    # Configuration - OPTIMIZED with BatchNorm for better convergence
     config = {
         'model': {
             'num_classes': 5,
-            'dropout_rate': 0.4,
+            'dropout_rate': 0.3,  # Reduced from 0.4 (BatchNorm provides regularization)
             'freeze_backbone': False
         },
         'training': {
             'epochs': 120,
             'batch_size': 32,
-            'learning_rate': 0.001,  # CHANGED: Reduced from 0.01 to 0.001 for stable training
-            'weight_decay': 0.0001,  # CHANGED: Reduced from 0.0005 to 0.0001
-            'optimizer': 'adam',  # CHANGED: Use Adam instead of SGD for easier training
+            'learning_rate': 0.001,  # Good for Adam + BatchNorm
+            'weight_decay': 0.0001,  # Appropriate for Adam
+            'optimizer': 'adam',  # Adam works well with BatchNorm
             'momentum': 0.9,
-            'label_smoothing': 0.0,  # CHANGED: Disabled label smoothing initially
+            'label_smoothing': 0.0,  # Keep disabled initially
             'use_amp': True,
-            'early_stopping_patience': 15,  # CHANGED: Enable early stopping with patience
+            'early_stopping_patience': 15,  # Monitor validation accuracy
             'main_weight': 1.0,
-            'aux1_weight': 0.3,
-            'aux2_weight': 0.3,
+            'aux1_weight': 0.2,  # Reduced from 0.3 (less auxiliary interference)
+            'aux2_weight': 0.2,  # Reduced from 0.3 (less auxiliary interference)
             'gradient_accumulation_steps': 1,
             'class_weighting': True
         },
