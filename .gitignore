@@ -6,8 +6,8 @@ data/
 *.pth
 *.ckpt
 *.onnx
-models/
 checkpoints/
+saved_models/
 
 # Python
 __pycache__/
