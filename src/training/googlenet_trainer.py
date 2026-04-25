@@ -6,7 +6,7 @@ import os
 import json
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader, TensorDataset, Dataset
 from torch.cuda.amp import GradScaler, autocast
 import pandas as pd
 from tqdm import tqdm
@@ -16,10 +16,62 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
 from pathlib import Path
+from torchvision import transforms
+from PIL import Image
 
 from src.utils.logger import setup_logger
 from src.utils.googlenet_utils import compute_combined_loss
 from src.evaluation.googlenet_evaluator import GoogLeNetEvaluator
+
+
+class AugmentedDataset(Dataset):
+    """
+    Custom dataset with data augmentation for training.
+    """
+    
+    def __init__(self, X, y, augment=True):
+        """
+        Args:
+            X: Images array (N, H, W, C) in range [0, 1]
+            y: Labels array (N,)
+            augment: Whether to apply data augmentation
+        """
+        self.X = X
+        self.y = y
+        self.augment = augment
+        
+        # Define augmentation transforms
+        if augment:
+            self.transform = transforms.Compose([
+                transforms.RandomHorizontalFlip(p=0.5),
+                transforms.RandomRotation(degrees=15),
+                transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+                transforms.RandomResizedCrop(size=224, scale=(0.8, 1.0)),
+                transforms.RandomAffine(degrees=0, translate=(0.1, 0.1)),
+            ])
+        else:
+            self.transform = None
+    
+    def __len__(self):
+        return len(self.X)
+    
+    def __getitem__(self, idx):
+        # Get image and label
+        img = self.X[idx]  # Shape: (H, W, C), values in [0, 1]
+        label = self.y[idx]
+        
+        # Convert to PIL Image for transforms
+        # img is in [0, 1], need to convert to [0, 255] for PIL
+        img_pil = Image.fromarray((img * 255).astype(np.uint8))
+        
+        # Apply augmentation if enabled
+        if self.transform and self.augment:
+            img_pil = self.transform(img_pil)
+        
+        # Convert back to tensor
+        img_tensor = transforms.ToTensor()(img_pil)  # Converts to [0, 1] and (C, H, W)
+        
+        return img_tensor, label
 
 
 class GoogLeNetTrainer:
@@ -73,7 +125,7 @@ class GoogLeNetTrainer:
     
     def _prepare_dataloaders(self, X_train, y_train, X_valid, y_valid):
         """
-        Prepare PyTorch dataloaders from numpy arrays.
+        Prepare PyTorch dataloaders from numpy arrays with data augmentation.
         
         Args:
             X_train: Training features
@@ -84,17 +136,11 @@ class GoogLeNetTrainer:
         Returns:
             Tuple of (train_loader, val_loader)
         """
-        from torchvision import transforms
+        # Create augmented dataset for training
+        train_dataset = AugmentedDataset(X_train, y_train, augment=True)
         
-        # Convert to PyTorch tensors
-        X_train_tensor = torch.from_numpy(X_train).permute(0, 3, 1, 2).float()  # NHWC to NCHW
-        y_train_tensor = torch.from_numpy(y_train).long()
-        X_valid_tensor = torch.from_numpy(X_valid).permute(0, 3, 1, 2).float()
-        y_valid_tensor = torch.from_numpy(y_valid).long()
-        
-        # Create datasets
-        train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
-        val_dataset = TensorDataset(X_valid_tensor, y_valid_tensor)
+        # No augmentation for validation
+        val_dataset = AugmentedDataset(X_valid, y_valid, augment=False)
         
         # Create dataloaders with improved settings
         train_loader = DataLoader(

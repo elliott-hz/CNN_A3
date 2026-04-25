@@ -71,11 +71,11 @@ def run_experiment(use_small_subset=False):
     # Create experiment directory
     exp_dir = create_experiment_dir("exp11_classification_googlenet_with_auxiliary")
     
-    # Configuration - OPTIMIZED with BatchNorm for better convergence
+    # Configuration - OPTIMIZED with BatchNorm + Data Augmentation
     config = {
         'model': {
             'num_classes': 5,
-            'dropout_rate': 0.3,  # Reduced from 0.4 (BatchNorm provides regularization)
+            'dropout_rate': 0.5,  # Increased from 0.3 to combat overfitting
             'freeze_backbone': False
         },
         'training': {
@@ -85,9 +85,9 @@ def run_experiment(use_small_subset=False):
             'weight_decay': 0.0001,  # Appropriate for Adam
             'optimizer': 'adam',  # Adam works well with BatchNorm
             'momentum': 0.9,
-            'label_smoothing': 0.0,  # Keep disabled initially
+            'label_smoothing': 0.1,  # Enable label smoothing for regularization
             'use_amp': True,
-            'early_stopping_patience': 15,  # Monitor validation accuracy
+            'early_stopping_patience': 20,  # Increased patience (was 15)
             'main_weight': 1.0,
             'aux1_weight': 0.2,  # Reduced from 0.3 (less auxiliary interference)
             'aux2_weight': 0.2,  # Reduced from 0.3 (less auxiliary interference)
