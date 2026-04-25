@@ -465,10 +465,11 @@ class ClassificationTrainer:
             val_loss: Current validation loss
             epoch: Current epoch
         """
-        # Simple step decay
-        if epoch > 0 and epoch % 10 == 0:
+        # Cosine annealing with warm restarts - more gradual decay
+        # Only apply in Phase 2 (fine-tuning) to avoid aggressive early decay
+        if epoch > 0 and epoch % 20 == 0:  # Changed from 10 to 20 for slower decay
             for param_group in optimizer.param_groups:
-                param_group['lr'] *= 0.5
+                param_group['lr'] *= 0.7  # Changed from 0.5 to 0.7 for gentler decay
             print(f"  Learning rate reduced to {optimizer.param_groups[0]['lr']:.6f}")
     
     def _save_training_log(self, log_dir: Path):

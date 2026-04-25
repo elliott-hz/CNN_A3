@@ -29,6 +29,9 @@ This repository contains a complete solution for visual dog emotion recognition 
 15. [Web App Troubleshooting](#15-web-app-troubleshooting)
 16. [Performance & Deployment](#16-performance--deployment)
 
+### Part 3: Training Configuration Guide
+17. [Ensuring Full Epoch Training](#17-ensuring-full-epoch-training)
+
 ---
 
 ## 1. Project Overview

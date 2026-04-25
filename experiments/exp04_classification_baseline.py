@@ -132,7 +132,7 @@ def main():
         'epochs': 120,
         'optimizer': 'adam',
         'weight_decay': 5e-4,  # Increased from 1e-4 for stronger regularization
-        'early_stopping_patience': 15,  # Changed from 0 to enable early stopping
+        'early_stopping_patience': 0,  # Disabled early stopping to ensure full training
         'use_amp': True,
         'gradient_accumulation_steps': 1,
         'label_smoothing': 0.1,
