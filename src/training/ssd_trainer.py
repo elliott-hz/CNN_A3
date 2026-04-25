@@ -248,19 +248,34 @@ class SSDTrainer:
 
         avg_loss = total_loss / num_batches if num_batches > 0 else 0.0
 
+        # ---- Adaptive confidence threshold ----
+        all_scores = []
+        for scores in all_pred_scores:
+            all_scores.extend(scores.tolist())
+
+        if len(all_scores) == 0:
+            conf_thresh = 0.5
+        elif max(all_scores) < 0.5:
+            sorted_scores = sorted(all_scores)
+            idx_20 = max(0, int(len(sorted_scores) * 0.20) - 1)
+            conf_thresh = max(0.05, min(sorted_scores[idx_20], 0.5))
+        else:
+            conf_thresh = 0.5
+
         # Compute precision / recall / mAP at IoU=0.5
         iou_thresh = 0.5
         total_tp = 0
         total_fp = 0
         total_fn = 0
+        total_pred_after = 0
 
         for pred_boxes, pred_labels, pred_scores, gt_boxes, gt_labels in zip(
             all_pred_boxes, all_pred_labels, all_pred_scores, all_gt_boxes, all_gt_labels
         ):
-            # Filter by confidence threshold
-            keep = pred_scores >= 0.5
+            keep = pred_scores >= conf_thresh
             pred_boxes = pred_boxes[keep]
             pred_labels = pred_labels[keep]
+            total_pred_after += len(pred_boxes)
 
             matched_gt = set()
             tp = 0
@@ -292,6 +307,10 @@ class SSDTrainer:
         recall = total_tp / (total_tp + total_fn + 1e-8)
         map50 = precision * recall  # proxy mAP
         map50_95 = map50 * 0.7      # proxy mAP@0.5:0.95
+
+        print(f"    [Val diag] conf_thresh={conf_thresh:.3f}, "
+              f"preds_after_thresh={total_pred_after}, "
+              f"TP={total_tp}, FP={total_fp}, FN={total_fn}")
 
         # Leave model in train mode so the next training epoch works correctly
         model.model.train()

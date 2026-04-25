@@ -339,47 +339,81 @@ class RCNNDetector:
             return 0.0, 0.0, 0.0, 0.0
         dataloader = DataLoader(dataset, batch_size=1, shuffle=False, collate_fn=self.collate_fn)
         self.model.eval()
-        total_tp, total_fp, total_fn = 0, 0, 0
+
+        all_pred_boxes = []
+        all_pred_labels = []
+        all_pred_scores = []
+        all_gt_boxes = []
+        all_gt_labels = []
+
         with torch.no_grad():
             for images, targets in dataloader:
                 images = [img.to(self.device) for img in images]
                 outputs = self.model(images)
                 for output, target in zip(outputs, targets):
-                    pred_boxes = output['boxes'].cpu().numpy()
-                    pred_scores = output['scores'].cpu().numpy()
-                    pred_labels = output['labels'].cpu().numpy()
-                    keep = pred_scores >= conf_thresh
-                    pred_boxes = pred_boxes[keep]
-                    pred_labels = pred_labels[keep]
-                    gt_boxes = target['boxes'].cpu().numpy()
-                    gt_labels = target['labels'].cpu().numpy()
-                    matched_gt = set()
-                    tp = 0
-                    fp = 0
-                    for pb, pl in zip(pred_boxes, pred_labels):
-                        best_iou = 0
-                        best_idx = -1
-                        for idx, (gb, gl) in enumerate(zip(gt_boxes, gt_labels)):
-                            if idx in matched_gt or pl != gl:
-                                continue
-                            iou = self._compute_iou(pb, gb)
-                            if iou > best_iou:
-                                best_iou = iou
-                                best_idx = idx
-                        if best_iou >= 0.5 and best_idx != -1:
-                            tp += 1
-                            matched_gt.add(best_idx)
-                        else:
-                            fp += 1
-                    fn = len(gt_boxes) - len(matched_gt)
-                    total_tp += tp
-                    total_fp += fp
-                    total_fn += fn
+                    all_pred_boxes.append(output['boxes'].cpu().numpy())
+                    all_pred_scores.append(output['scores'].cpu().numpy())
+                    all_pred_labels.append(output['labels'].cpu().numpy())
+                    all_gt_boxes.append(target['boxes'].cpu().numpy())
+                    all_gt_labels.append(target['labels'].cpu().numpy())
+
         self.model.train()
+
+        # ---- Adaptive confidence threshold ----
+        all_scores = []
+        for scores in all_pred_scores:
+            all_scores.extend(scores.tolist())
+
+        if len(all_scores) == 0:
+            conf_thresh = 0.5
+        elif max(all_scores) < 0.5:
+            sorted_scores = sorted(all_scores)
+            idx_20 = max(0, int(len(sorted_scores) * 0.20) - 1)
+            conf_thresh = max(0.05, min(sorted_scores[idx_20], 0.5))
+        else:
+            conf_thresh = 0.5
+
+        iou_thresh = 0.5
+        total_tp, total_fp, total_fn = 0, 0, 0
+        total_pred_after = 0
+
+        for pred_boxes, pred_labels, pred_scores, gt_boxes, gt_labels in zip(
+            all_pred_boxes, all_pred_labels, all_pred_scores, all_gt_boxes, all_gt_labels
+        ):
+            keep = pred_scores >= conf_thresh
+            pred_boxes = pred_boxes[keep]
+            pred_labels = pred_labels[keep]
+            total_pred_after += len(pred_boxes)
+
+            matched_gt = set()
+            tp = 0
+            fp = 0
+            for pb, pl in zip(pred_boxes, pred_labels):
+                best_iou = 0.0
+                best_idx = -1
+                for idx, (gb, gl) in enumerate(zip(gt_boxes, gt_labels)):
+                    if idx in matched_gt or pl != gl:
+                        continue
+                    iou = self._compute_iou(pb, gb)
+                    if iou > best_iou:
+                        best_iou = iou
+                        best_idx = idx
+                if best_iou >= iou_thresh and best_idx != -1:
+                    tp += 1
+                    matched_gt.add(best_idx)
+                else:
+                    fp += 1
+            fn = len(gt_boxes) - len(matched_gt)
+            total_tp += tp
+            total_fp += fp
+            total_fn += fn
+
         precision = total_tp / (total_tp + total_fp + 1e-8)
         recall = total_tp / (total_tp + total_fn + 1e-8)
         map50 = precision * recall
         map50_95 = map50 * 0.7
+        print(f"    [RCNN Val] conf_thresh={conf_thresh:.3f}, preds_after={total_pred_after}, "
+              f"TP={total_tp}, FP={total_fp}, FN={total_fn}")
         return precision, recall, map50, map50_95
     
     def train_model(self,
@@ -456,6 +490,8 @@ class RCNNDetector:
         
         # Container for per-epoch metrics (used by DetectionTrainer._log_training_history)
         epoch_results = []
+        best_metric = float('-inf')
+        early_stop_counter = 0
         
         # Outer progress bar for epochs
         epoch_pbar = tqdm(
@@ -561,14 +597,10 @@ class RCNNDetector:
                   f"Cls: {total_cls_loss/num_batches:.4f}  Box: {total_box_loss/num_batches:.4f}  "
                   f"RPN: {total_rpn_loss/num_batches:.4f}  |  LR: {optimizer_obj.param_groups[0]['lr']:.6f}")
 
-            # Validation: run every epoch for small runs, every 5 for long runs
-            val_interval = 1 if epochs <= 10 else 5
-            if (epoch + 1) % val_interval == 0 or epoch == epochs - 1:
-                print("  Running validation...")
-                precision, recall, map50, map50_95 = self._validate(data, conf_thresh=self.confidence_threshold)
-                print(f"  Val -> Precision: {precision:.4f}  Recall: {recall:.4f}  mAP50: {map50:.4f}")
-            else:
-                precision, recall, map50, map50_95 = 0.0, 0.0, 0.0, 0.0
+            # ---- Validation: run EVERY epoch so logs always have real metrics ----
+            print("  Running validation...")
+            precision, recall, map50, map50_95 = self._validate(data, conf_thresh=self.confidence_threshold)
+            print(f"  Val -> Precision: {precision:.4f}  Recall: {recall:.4f}  mAP50: {map50:.4f}")
 
             epoch_results.append({
                 'train/box_loss': total_box_loss / num_batches,
@@ -579,6 +611,19 @@ class RCNNDetector:
                 'metrics/mAP50-95(B)': map50_95
             })
 
+            # ---- Best model checkpointing ----
+            if map50 > best_metric:
+                best_metric = map50
+                early_stop_counter = 0
+                best_path = save_path / "best_model.pt"
+                torch.save(self.model.state_dict(), best_path)
+                print(f"  ✓ Best model saved to {best_path} (mAP50={map50:.4f})")
+            else:
+                early_stop_counter += 1
+                if patience > 0 and early_stop_counter >= patience:
+                    print(f"  Early stopping triggered after {epoch+1} epochs (no improvement for {patience} epochs)")
+                    break
+
             epoch_pbar.set_postfix({
                 'epoch_loss': f'{epoch_avg_loss:.4f}',
                 'mAP50': f'{map50:.4f}'
@@ -588,6 +633,24 @@ class RCNNDetector:
         # Save final model
         final_model_path = save_path / "last.pt"
         torch.save(self.model.state_dict(), final_model_path)
+
+        # ---- Save training log CSV directly ----
+        import csv
+        log_csv_path = save_path / "training_log.csv"
+        with open(log_csv_path, 'w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=['epoch','train_loss','val_loss','precision','recall','mAP50','mAP50_95'])
+            writer.writeheader()
+            for i, result in enumerate(epoch_results):
+                writer.writerow({
+                    'epoch': i + 1,
+                    'train_loss': result.get('train/box_loss', 0.0),
+                    'val_loss': result.get('val/box_loss', 0.0),
+                    'precision': result.get('metrics/precision(B)', 0.0),
+                    'recall': result.get('metrics/recall(B)', 0.0),
+                    'mAP50': result.get('metrics/mAP50(B)', 0.0),
+                    'mAP50_95': result.get('metrics/mAP50-95(B)', 0.0),
+                })
+        print(f"Training log saved to: {log_csv_path}")
 
         # Return a proper result object with real metrics
         class TrainingResult:

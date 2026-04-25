@@ -127,10 +127,13 @@ class DetectionTrainer:
             print("TRAINING COMPLETE")
             print("=" * 80)
             
-            # Save best model
+            # Save best model (only if the model hasn't already saved one during training)
             best_model_path = model_dir / "best_model.pt"
-            model.save(str(best_model_path))
-            print(f"Best model saved to: {best_model_path}")
+            if not best_model_path.exists():
+                model.save(str(best_model_path))
+                print(f"Best model saved to: {best_model_path}")
+            else:
+                print(f"Best model already saved at: {best_model_path}")
             
             # Log training history
             self._log_training_history(results, log_dir)
