@@ -38,12 +38,41 @@ training_config = {
 - Higher weight decay penalizes large weights more strongly
 - Early stopping prevents training beyond the point where validation performance degrades
 
-### 2. Added Data Augmentation (`classification_trainer.py`)
+### 2. Added Memory-Efficient Data Augmentation (`classification_trainer.py`)
 
-Added comprehensive data augmentation pipeline in `_create_dataloader()`:
+#### Problem with Initial Implementation
+The first version pre-computed all augmented images upfront, causing:
+- ❌ **High memory usage**: All augmented images stored in RAM simultaneously
+- ❌ **Slow data loading**: Pre-processing all 6527+ training images before training starts
+- ❌ **Memory overflow**: Exceeded 16GB RAM on typical systems
+
+#### Solution: On-the-Fly Augmentation
+Created a custom `AugmentedDataset` class that applies transforms **only when needed**:
 
 ```python
-augment_transform = transforms.Compose([
+class AugmentedDataset(Dataset):
+    """Applies augmentation during __getitem__, not upfront"""
+    
+    def __getitem__(self, idx):
+        img = self.X[idx]
+        pil_img = Image.fromarray(img.astype('uint8'))
+        
+        # Apply random augmentation each time this sample is accessed
+        if self.transform:
+            pil_img = self.transform(pil_img)
+        
+        return transforms.ToTensor()(pil_img), self.y[idx]
+```
+
+**Benefits:**
+- ✅ **Low memory footprint**: Only augments images in the current batch
+- ✅ **Fast startup**: No pre-processing delay before training begins
+- ✅ **True randomness**: Each epoch sees different augmentations of the same image
+- ✅ **Scalable**: Works with datasets of any size without memory issues
+
+**Augmentation Pipeline:**
+```python
+transforms.Compose([
     transforms.RandomHorizontalFlip(p=0.5),      # 50% chance of horizontal flip
     transforms.RandomRotation(degrees=15),       # ±15° rotation
     transforms.ColorJitter(                      # Color variation
@@ -57,12 +86,6 @@ augment_transform = transforms.Compose([
 ])
 ```
 
-**Benefits:**
-- **RandomHorizontalFlip**: Dogs can face left or right - this doubles effective training data
-- **RandomRotation**: Handles slight camera angle variations (±15°)
-- **ColorJitter**: Makes model robust to lighting conditions and color variations
-- **RandomAffine**: Handles slight position and scale variations
-
 ## Expected Improvements
 
 With these changes, you should see:
@@ -71,6 +94,7 @@ With these changes, you should see:
 2. **Better Validation Performance**: Val accuracy should improve from ~68% to 75-80%+
 3. **Earlier Convergence**: Early stopping will halt training when val performance plateaus
 4. **More Robust Model**: Data augmentation creates a model that generalizes better to unseen images
+5. **Efficient Memory Usage**: Memory consumption stays constant regardless of dataset size
 
 ## How to Re-run Training
 
@@ -82,10 +106,12 @@ python experiments/exp04_classification_baseline.py
 ```
 
 The training will now:
-- Apply data augmentation during training (not validation/test)
+- Apply data augmentation **on-the-fly** during training (not validation/test)
 - Use lower learning rate for more stable training
 - Stop automatically if validation accuracy doesn't improve for 15 epochs
 - Apply stronger L2 regularization
+- **Start immediately** without long data loading delays
+- **Use minimal memory** (only stores original images, not augmented versions)
 
 ## Monitoring Training
 
@@ -96,11 +122,14 @@ Watch for these indicators of healthy training:
 - Gap between train/val stays <10%
 - Val loss decreases steadily
 - Early stopping triggers before epoch 120
+- Fast startup (no long preprocessing delay)
+- Stable memory usage throughout training
 
 ❌ **Warning Signs:**
 - Train accuracy >> val accuracy (>15% gap)
 - Val loss starts increasing while train loss decreases
 - No improvement in val accuracy for many epochs
+- Memory usage keeps growing (memory leak)
 
 ## Additional Recommendations (If Still Overfitting)
 
@@ -114,7 +143,9 @@ If overfitting persists after these changes:
 
 ## Technical Notes
 
-- Data augmentation is applied **on-the-fly** during training, so each epoch sees different augmented versions
-- Validation/test sets use **no augmentation** to get consistent evaluation metrics
-- PIL Image conversion ensures compatibility with torchvision transforms
-- Augmentation only applies when `train=True` in dataloader creation
+- **On-the-fly augmentation**: Applied during `__getitem__`, so each epoch sees different augmented versions
+- **Validation/test sets**: Use **no augmentation** to get consistent evaluation metrics
+- **PIL Image conversion**: Ensures compatibility with torchvision transforms
+- **Augmentation scope**: Only applies when `train=True` in dataloader creation
+- **Memory efficiency**: Original images stored once; augmented versions created temporarily per batch
+- **Worker processes**: Reduced `num_workers` from 4 to 2 to further reduce memory overhead
