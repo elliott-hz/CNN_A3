@@ -380,8 +380,8 @@ SSD_CONFIG = {
     'model_type': 'ssd',
     'num_classes': 2,  # 1 class + background
     'pretrained': True,
-    'min_size': 640,
-    'max_size': 640
+    'min_size': 300,
+    'max_size': 300
 }
 
 MODIFIED_V1_DETECTION_CONFIG = {

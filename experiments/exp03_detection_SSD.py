@@ -96,23 +96,25 @@ def main():
     # Step 2: Initialize model and trainer
     logger.info("[Step 2/5] Initializing model and trainer...")
     
-    # Configure SSD model - Optimized for better convergence
+    # Configure SSD model - Keep default 300x300 (pretrained on this size)
     model_config = SSD_CONFIG.copy()
     model_config['num_classes'] = dataset_config['nc'] + 1  # +1 for background class
+    # Keep min_size=300, max_size=300 to match pretrained backbone
     
     # Training configuration optimized for SSD convergence
     training_config = {
-        'learning_rate': 0.005,      # Increased from 0.002 (SSD needs higher lr)
-        'batch_size': 16,            # Increased from 8 (SSD benefits from larger batch)
-        'epochs': 120,               # Reduced from 120 (faster convergence expected)
+        'learning_rate': 0.01,       # Increased from 0.002 (SSD needs higher lr for fine-tuning)
+        'batch_size': 16,            # Keep larger batch for stable gradients
+        'epochs': 120,               # Reduced from 120
         'optimizer': 'sgd',
-        'weight_decay': 1e-4,        # Reduced from 5e-4 (less regularization)
+        'weight_decay': 1e-4,        # Reduced from 5e-4
         'early_stopping_patience': 15,
         'use_amp': True,
         'gradient_accumulation_steps': 1,
-        'warmup_epochs': 10,
+        'warmup_epochs': 5,
         'scheduler': 'cosine',
-        'resume': RESUME_TRAINING
+        'resume': RESUME_TRAINING,
+        'freeze_backbone_epochs': 5  # NEW: Freeze backbone initially for better head training
     }
     
     logger.info(f"Model config: {model_config}")

@@ -124,6 +124,13 @@ class TorchvisionDetectionTrainer:
         # Move model to device
         model.to(self.device)
         
+        # Freeze backbone if specified (for SSD fine-tuning)
+        freeze_backbone_epochs = self.training_config.get('freeze_backbone_epochs', 0)
+        if freeze_backbone_epochs > 0 and hasattr(model, 'model') and hasattr(model.model, 'backbone'):
+            print(f"\n🔒 Freezing backbone for first {freeze_backbone_epochs} epochs...")
+            for param in model.model.backbone.parameters():
+                param.requires_grad = False
+        
         # Setup optimizer and scheduler
         optimizer = self._setup_optimizer(model)
         num_training_steps = len(train_loader) * self.epochs
@@ -157,6 +164,15 @@ class TorchvisionDetectionTrainer:
         patience_counter = 0
         
         for epoch in range(1, self.epochs + 1):
+            # Unfreeze backbone after freeze_backbone_epochs
+            if freeze_backbone_epochs > 0 and epoch == freeze_backbone_epochs + 1:
+                print(f"\n🔓 Unfreezing backbone at epoch {epoch}...")
+                for param in model.model.backbone.parameters():
+                    param.requires_grad = True
+                # Recreate optimizer to include backbone parameters
+                optimizer = self._setup_optimizer(model)
+                print("✅ Optimizer recreated with all parameters\n")
+            
             # Training phase
             model.train()
             epoch_loss = self._train_one_epoch(
