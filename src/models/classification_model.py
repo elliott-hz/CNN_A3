@@ -502,32 +502,32 @@ class GoogLeNetClassifier(nn.Module):
             Classification logits (or tuple with auxiliary outputs during training)
         """
         # Manually extract features from GoogLeNet backbone
-        # Note: GoogLeNet uses BasicConv2d which includes BN internally
+        # Note: GoogLeNet uses BasicConv2d which includes Conv + BN + ReLU internally
         
         # GoogLeNet structure:
-        # conv1 (includes BN) -> relu -> maxpool1
-        # conv2 (includes BN) -> relu -> maxpool2
-        # conv3 (includes BN) -> relu -> maxpool3
+        # conv1 (Conv+BN+ReLU) -> maxpool1
+        # conv2 (Conv+BN+ReLU) -> maxpool2
+        # conv3 (Conv+BN+ReLU) -> maxpool3
         # inception3a -> inception3b -> maxpool3
         # inception4a -> inception4b -> inception4c -> inception4d -> inception4e -> maxpool4
         # inception5a -> inception5b -> avgpool -> dropout -> fc
         
-        x = self.backbone.conv1(x)
-        x = self.backbone.relu(x)  # conv1 already includes BN
+        # Stage 1: Initial convolutions (BasicConv2d includes ReLU internally)
+        x = self.backbone.conv1(x)  # BasicConv2d: Conv → BN → ReLU
         x = self.backbone.maxpool1(x)
         
-        x = self.backbone.conv2(x)
-        x = self.backbone.relu(x)  # conv2 already includes BN
+        x = self.backbone.conv2(x)  # BasicConv2d: Conv → BN → ReLU
         x = self.backbone.maxpool2(x)
         
-        x = self.backbone.conv3(x)
-        x = self.backbone.relu(x)  # conv3 already includes BN
+        x = self.backbone.conv3(x)  # BasicConv2d: Conv → BN → ReLU
         x = self.backbone.maxpool3(x)
         
+        # Stage 2: Inception modules (stage 3)
         x = self.backbone.inception3a(x)
         x = self.backbone.inception3b(x)
-        x = self.backbone.maxpool3(x)
+        x = self.backbone.maxpool3(x)  # Note: maxpool3 used twice in original architecture
         
+        # Stage 3: Inception modules (stage 4) + Auxiliary classifier 1
         x = self.backbone.inception4a(x)
         
         # Auxiliary classifier 1 output (from inception4a)
@@ -549,10 +549,11 @@ class GoogLeNetClassifier(nn.Module):
         x = self.backbone.inception4e(x)
         x = self.backbone.maxpool4(x)
         
+        # Stage 4: Inception modules (stage 5)
         x = self.backbone.inception5a(x)
         x = self.backbone.inception5b(x)
         
-        # Global average pooling
+        # Stage 5: Global average pooling → 1024-dim features
         x = self.backbone.avgpool(x)
         x = torch.flatten(x, 1)  # Shape: (batch_size, 1024)
         
