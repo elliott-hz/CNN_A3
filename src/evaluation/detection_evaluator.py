@@ -122,6 +122,13 @@ class DetectionEvaluator:
         Evaluate torchvision-based models (Faster R-CNN, SSD).
         
         Implements COCO-style mAP calculation.
+        
+        Args:
+            model: Detection model
+            test_dataset: Test dataset
+            conf_threshold: Confidence threshold for filtering predictions
+            
+        Note: For poorly trained models, consider lowering conf_threshold to 0.1 or 0.01
         """
         from torch.utils.data import DataLoader
         
@@ -140,19 +147,45 @@ class DetectionEvaluator:
                                 collate_fn=collate_fn, num_workers=2)
         
         print(f"\nEvaluating on {len(test_loader)} images...")
+        print(f"Confidence threshold: {conf_threshold}")
+        
+        # Debug counters
+        total_gt_boxes = 0
+        total_pred_boxes_before_filter = 0
+        total_pred_boxes_after_filter = 0
+        images_with_predictions = 0
         
         with torch.no_grad():
             for images, targets in tqdm(test_loader, desc="Evaluating"):
                 image = images[0].to(device)
                 target = targets[0]
                 
-                # Get predictions
+                # Count ground truth boxes
+                total_gt_boxes += len(target['boxes'])
+                
+                # Get raw predictions first (before confidence filtering)
+                raw_preds = model.model([image])
+                raw_pred = raw_preds[0]
+                total_pred_boxes_before_filter += len(raw_pred['boxes'])
+                
+                # Apply confidence filtering using model's predict method
                 if hasattr(model, 'predict'):
                     preds = model.predict([image], conf_threshold=conf_threshold)
                     pred = preds[0]
                 else:
-                    preds = model([image])
-                    pred = preds[0]
+                    # Manual filtering if predict method not available
+                    keep = raw_pred['scores'] >= conf_threshold
+                    pred = {
+                        'boxes': raw_pred['boxes'][keep],
+                        'labels': raw_pred['labels'][keep],
+                        'scores': raw_pred['scores'][keep]
+                    }
+                
+                # Count filtered predictions
+                num_preds = len(pred['boxes'])
+                total_pred_boxes_after_filter += num_preds
+                if num_preds > 0:
+                    images_with_predictions += 1
                 
                 # Store predictions and ground truths
                 all_predictions.append({
@@ -165,6 +198,30 @@ class DetectionEvaluator:
                     'boxes': target['boxes'].cpu().numpy(),
                     'labels': target['labels'].cpu().numpy()
                 })
+        
+        # Print diagnostic statistics
+        avg_raw_preds = total_pred_boxes_before_filter / max(len(test_loader), 1)
+        avg_filtered_preds = total_pred_boxes_after_filter / max(len(test_loader), 1)
+        filter_rate = 1 - (total_pred_boxes_after_filter / max(total_pred_boxes_before_filter, 1))
+        
+        print(f"\n{'='*60}")
+        print(f"Evaluation Statistics:")
+        print(f"{'='*60}")
+        print(f"Total ground truth boxes: {total_gt_boxes}")
+        print(f"Raw predictions (before filtering): {total_pred_boxes_before_filter} (avg {avg_raw_preds:.1f}/img)")
+        print(f"Filtered predictions (conf≥{conf_threshold}): {total_pred_boxes_after_filter} (avg {avg_filtered_preds:.1f}/img)")
+        print(f"Images with predictions: {images_with_predictions}/{len(test_loader)} ({100*images_with_predictions/len(test_loader):.1f}%)")
+        print(f"Filter rate: {100*filter_rate:.1f}% of predictions filtered out")
+        
+        if total_pred_boxes_after_filter == 0:
+            print(f"\n⚠️  WARNING: No predictions passed the confidence threshold!")
+            print(f"   This will result in mAP@0.5 = 0")
+            print(f"   Suggestions:")
+            print(f"   1. Model may need more training epochs")
+            print(f"   2. Try lowering conf_threshold to 0.1 or 0.01 for debugging")
+            print(f"   3. Check if model weights were loaded correctly")
+        
+        print(f"{'='*60}\n")
         
         # Calculate metrics
         metrics = self._calculate_detection_metrics(all_predictions, all_ground_truths)

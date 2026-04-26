@@ -160,7 +160,7 @@ def main():
                 test_dataset=test_dataset,
                 output_dir=str(output_dir),
                 model_type='torchvision',
-                conf_threshold=0.5
+                conf_threshold=0.1  # Lowered from 0.5 to capture more predictions
             )
             
             # Generate report
