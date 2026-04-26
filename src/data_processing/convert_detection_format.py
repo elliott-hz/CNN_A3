@@ -115,6 +115,11 @@ class DetectionFormatConverter:
         annotations_dir = coco_dir / "annotations"
         annotations_dir.mkdir(exist_ok=True)
         
+        # Statistics
+        total_images = 0
+        total_annotations = 0
+        skipped_no_label = 0
+        
         # Process each split
         for split in ['train', 'val', 'test']:
             print(f"\nProcessing {split} split...")
@@ -144,11 +149,21 @@ class DetectionFormatConverter:
             
             image_id = 0
             annotation_id = 0
+            split_images = 0
+            split_annotations = 0
+            split_skipped = 0
             
             # Process all images in this split
             image_files = list(images_split_dir.glob('*.jpg')) + list(images_split_dir.glob('*.png'))
             
             for img_path in image_files:
+                # Check if corresponding label exists
+                label_path = labels_split_dir / f"{img_path.stem}.txt"
+                if not label_path.exists():
+                    print(f"  ⚠️  Warning: No label file for {img_path.name}, skipping...")
+                    split_skipped += 1
+                    continue
+                
                 # Get image dimensions
                 img_width, img_height = self._get_image_dimensions(img_path)
                 
@@ -161,8 +176,15 @@ class DetectionFormatConverter:
                 })
                 
                 # Read corresponding label
-                label_path = labels_split_dir / f"{img_path.stem}.txt"
                 annotations = self._read_yolo_label(label_path)
+                
+                # Skip if no valid annotations
+                if len(annotations) == 0:
+                    print(f"  ⚠️  Warning: Empty label file for {img_path.name}, skipping...")
+                    split_skipped += 1
+                    # Remove the image entry we just added
+                    coco_data['images'].pop()
+                    continue
                 
                 # Convert YOLO annotations to COCO format
                 for ann in annotations:
@@ -172,21 +194,35 @@ class DetectionFormatConverter:
                     width_px = ann['width'] * img_width
                     height_px = ann['height'] * img_height
                     
-                    # COCO uses top-left corner
+                    # Validate bounding box
                     x_min = x_center_px - width_px / 2
                     y_min = y_center_px - height_px / 2
+                    
+                    # Ensure bbox is within image bounds and has positive dimensions
+                    if width_px <= 0 or height_px <= 0:
+                        print(f"  ⚠️  Warning: Invalid bbox size for {img_path.name}, skipping annotation...")
+                        continue
+                    
+                    if x_min < 0 or y_min < 0 or x_min + width_px > img_width or y_min + height_px > img_height:
+                        print(f"  ⚠️  Warning: Bbox out of bounds for {img_path.name}, clipping...")
+                        x_min = max(0, x_min)
+                        y_min = max(0, y_min)
+                        width_px = min(width_px, img_width - x_min)
+                        height_px = min(height_px, img_height - y_min)
                     
                     coco_data['annotations'].append({
                         'id': annotation_id,
                         'image_id': image_id,
                         'category_id': ann['class'],
-                        'bbox': [x_min, y_min, width_px, height_px],
-                        'area': width_px * height_px,
+                        'bbox': [round(x_min, 2), round(y_min, 2), round(width_px, 2), round(height_px, 2)],
+                        'area': round(width_px * height_px, 2),
                         'iscrowd': 0
                     })
                     annotation_id += 1
+                    split_annotations += 1
                 
                 image_id += 1
+                split_images += 1
             
             # Save COCO JSON
             output_file = annotations_dir / f"instances_{split}.json"
@@ -194,8 +230,21 @@ class DetectionFormatConverter:
                 json.dump(coco_data, f, indent=2)
             
             print(f"  ✓ Saved {output_file}")
-            print(f"    Images: {len(coco_data['images'])}")
-            print(f"    Annotations: {len(coco_data['annotations'])}")
+            print(f"    Images: {split_images}")
+            print(f"    Annotations: {split_annotations}")
+            if split_skipped > 0:
+                print(f"    Skipped (no label/empty): {split_skipped}")
+            
+            total_images += split_images
+            total_annotations += split_annotations
+            skipped_no_label += split_skipped
+        
+        # Print summary
+        print(f"\n📊 COCO Conversion Summary:")
+        print(f"   Total images: {total_images}")
+        print(f"   Total annotations: {total_annotations}")
+        if skipped_no_label > 0:
+            print(f"   Skipped images: {skipped_no_label}")
         
         # Create dataset.yaml for COCO format
         # Use relative path from project root for consistency with YOLO format
@@ -236,6 +285,11 @@ names: {self.class_names}
             shutil.rmtree(images_dir)
         shutil.copytree(self.source_dir / "images", images_dir)
         
+        # Statistics
+        total_images = 0
+        total_annotations = 0
+        skipped_no_label = 0
+        
         # Process each split
         for split in ['train', 'val', 'test']:
             print(f"\nProcessing {split} split...")
@@ -253,15 +307,29 @@ names: {self.class_names}
             
             # Process all images in this split
             image_files = list(images_split_dir.glob('*.jpg')) + list(images_split_dir.glob('*.png'))
-            count = 0
+            split_count = 0
+            split_annotations = 0
+            split_skipped = 0
             
             for img_path in image_files:
+                # Check if corresponding label exists
+                label_path = labels_split_dir / f"{img_path.stem}.txt"
+                if not label_path.exists():
+                    print(f"  ⚠️  Warning: No label file for {img_path.name}, skipping...")
+                    split_skipped += 1
+                    continue
+                
                 # Get image dimensions
                 img_width, img_height = self._get_image_dimensions(img_path)
                 
                 # Read corresponding label
-                label_path = labels_split_dir / f"{img_path.stem}.txt"
                 annotations = self._read_yolo_label(label_path)
+                
+                # Skip if no valid annotations
+                if len(annotations) == 0:
+                    print(f"  ⚠️  Warning: Empty label file for {img_path.name}, skipping...")
+                    split_skipped += 1
+                    continue
                 
                 # Create VOC XML
                 root = ET.Element('annotation')
@@ -297,7 +365,36 @@ names: {self.class_names}
                 segmented.text = '0'
                 
                 # Objects
+                valid_annotations = 0
                 for ann in annotations:
+                    # Convert normalized coordinates to pixel coordinates
+                    x_center_px = ann['x_center'] * img_width
+                    y_center_px = ann['y_center'] * img_height
+                    width_px = ann['width'] * img_width
+                    height_px = ann['height'] * img_height
+                    
+                    # Validate bounding box
+                    if width_px <= 0 or height_px <= 0:
+                        print(f"  ⚠️  Warning: Invalid bbox size for {img_path.name}, skipping annotation...")
+                        continue
+                    
+                    # Calculate bbox coordinates with rounding for better precision
+                    x_min = round(x_center_px - width_px / 2)
+                    y_min = round(y_center_px - height_px / 2)
+                    x_max = round(x_center_px + width_px / 2)
+                    y_max = round(y_center_px + height_px / 2)
+                    
+                    # Ensure bbox is within image bounds
+                    x_min = max(0, x_min)
+                    y_min = max(0, y_min)
+                    x_max = min(img_width, x_max)
+                    y_max = min(img_height, y_max)
+                    
+                    # Final validation after clipping
+                    if x_max <= x_min or y_max <= y_min:
+                        print(f"  ⚠️  Warning: Invalid bbox after clipping for {img_path.name}, skipping annotation...")
+                        continue
+                    
                     obj = ET.SubElement(root, 'object')
                     
                     name = ET.SubElement(obj, 'name')
@@ -315,22 +412,26 @@ names: {self.class_names}
                     # Bounding box (VOC uses xmin, ymin, xmax, ymax)
                     bndbox = ET.SubElement(obj, 'bndbox')
                     
-                    x_center_px = ann['x_center'] * img_width
-                    y_center_px = ann['y_center'] * img_height
-                    width_px = ann['width'] * img_width
-                    height_px = ann['height'] * img_height
-                    
                     xmin = ET.SubElement(bndbox, 'xmin')
-                    xmin.text = str(int(x_center_px - width_px / 2))
+                    xmin.text = str(x_min)
                     
                     ymin = ET.SubElement(bndbox, 'ymin')
-                    ymin.text = str(int(y_center_px - height_px / 2))
+                    ymin.text = str(y_min)
                     
                     xmax = ET.SubElement(bndbox, 'xmax')
-                    xmax.text = str(int(x_center_px + width_px / 2))
+                    xmax.text = str(x_max)
                     
                     ymax = ET.SubElement(bndbox, 'ymax')
-                    ymax.text = str(int(y_center_px + height_px / 2))
+                    ymax.text = str(y_max)
+                    
+                    valid_annotations += 1
+                    split_annotations += 1
+                
+                # Only create XML if there are valid annotations
+                if valid_annotations == 0:
+                    print(f"  ⚠️  Warning: No valid annotations for {img_path.name}, skipping file...")
+                    split_skipped += 1
+                    continue
                 
                 # Write XML file
                 xml_str = minidom.parseString(ET.tostring(root)).toprettyxml(indent="  ")
@@ -338,9 +439,23 @@ names: {self.class_names}
                 with open(xml_path, 'w') as f:
                     f.write(xml_str)
                 
-                count += 1
+                split_count += 1
             
-            print(f"  ✓ Saved {count} XML files to {annotations_split_dir}")
+            print(f"  ✓ Saved {split_count} XML files to {annotations_split_dir}")
+            print(f"    Total annotations: {split_annotations}")
+            if split_skipped > 0:
+                print(f"    Skipped (no label/empty): {split_skipped}")
+            
+            total_images += split_count
+            total_annotations += split_annotations
+            skipped_no_label += split_skipped
+        
+        # Print summary
+        print(f"\n📊 VOC Conversion Summary:")
+        print(f"   Total images: {total_images}")
+        print(f"   Total annotations: {total_annotations}")
+        if skipped_no_label > 0:
+            print(f"   Skipped images: {skipped_no_label}")
         
         # Create dataset.yaml for VOC format
         # Use relative path from project root for consistency with YOLO format
