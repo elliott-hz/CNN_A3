@@ -18,6 +18,37 @@ from tqdm import tqdm
 import os
 
 
+def _calculate_iou(box1: torch.Tensor, box2: torch.Tensor) -> torch.Tensor:
+    """
+    Calculate Intersection over Union (IoU) between two sets of boxes.
+    
+    Args:
+        box1: Tensor of shape (N, 4) with format [x1, y1, x2, y2]
+        box2: Tensor of shape (M, 4) with format [x1, y1, x2, y2]
+        
+    Returns:
+        Tensor of shape (N, M) containing IoU values
+    """
+    # Calculate intersection coordinates
+    inter_x1 = torch.max(box1[:, None, 0], box2[None, :, 0])
+    inter_y1 = torch.max(box1[:, None, 1], box2[None, :, 1])
+    inter_x2 = torch.min(box1[:, None, 2], box2[None, :, 2])
+    inter_y2 = torch.min(box1[:, None, 3], box2[None, :, 3])
+    
+    # Calculate intersection area
+    inter_area = torch.clamp(inter_x2 - inter_x1, min=0) * torch.clamp(inter_y2 - inter_y1, min=0)
+    
+    # Calculate union area
+    box1_area = (box1[:, 2] - box1[:, 0]) * (box1[:, 3] - box1[:, 1])
+    box2_area = (box2[:, 2] - box2[:, 0]) * (box2[:, 3] - box2[:, 1])
+    union_area = box1_area[:, None] + box2_area[None, :] - inter_area
+    
+    # Calculate IoU
+    iou = inter_area / (union_area + 1e-8)
+    
+    return iou
+
+
 class DetectionDataset(Dataset):
     """
     Custom dataset for detection models using COCO or VOC format.
@@ -288,21 +319,26 @@ class TorchvisionDetectionTrainer:
                 'epoch': epoch,
                 'train_loss': train_metrics['loss'],
                 'val_loss': val_metrics['loss'],
-                'learning_rate': scheduler.get_last_lr()[0]
+                'learning_rate': scheduler.get_last_lr()[0],
+                'mAP50': val_metrics.get('mAP50', 0.0),
+                'mAP50_95': val_metrics.get('mAP50_95', 0.0)
             })
             
-            # Print progress
+            # Print progress with mAP metrics
             print(f"Epoch [{epoch}/{self.epochs}] "
                   f"Train Loss: {train_metrics['loss']:.4f} | "
                   f"Val Loss: {val_metrics['loss']:.4f} | "
+                  f"mAP@0.5: {val_metrics.get('mAP50', 0.0):.4f} | "
+                  f"mAP@0.5:0.95: {val_metrics.get('mAP50_95', 0.0):.4f} | "
                   f"LR: {scheduler.get_last_lr()[0]:.6f}")
             
-            # Save best model
-            if val_metrics['loss'] < self.best_metric or self.best_metric == float('-inf'):
-                self.best_metric = val_metrics['loss']
+            # Save best model (based on mAP@0.5)
+            current_map50 = val_metrics.get('mAP50', 0.0)
+            if current_map50 > self.best_metric or self.best_metric == float('-inf'):
+                self.best_metric = current_map50
                 best_model_path = model_dir / "best_model.pt"
                 model.save(str(best_model_path))
-                print(f"  ✓ Saved best model (loss: {val_metrics['loss']:.4f})")
+                print(f"  ✓ Saved best model (mAP@0.5: {current_map50:.4f})")
                 self.early_stop_counter = 0
             else:
                 self.early_stop_counter += 1
@@ -414,22 +450,121 @@ class TorchvisionDetectionTrainer:
         avg_loss = total_loss / num_batches
         return {'loss': avg_loss}
     
-    def _validate(self, model, val_loader, conf_threshold: float = 0.1):
-        """Validate model and calculate a proxy metric for early stopping.
+    def _calculate_map_simple(self, predictions_list: List, targets_list: List, 
+                               iou_threshold: float = 0.5) -> Tuple[float, List]:
+        """
+        Calculate mAP@threshold using simple IoU-based matching.
         
-        Note: Torchvision detection models do NOT return losses in eval mode.
-        Instead of returning dummy loss, we calculate a simple validation metric
-        based on the number of valid predictions (above confidence threshold) to guide early stopping.
+        Args:
+            predictions_list: List of prediction dicts with 'boxes', 'labels', 'scores'
+            targets_list: List of target dicts with 'boxes', 'labels'
+            iou_threshold: IoU threshold for positive match (default: 0.5)
+            
+        Returns:
+            Tuple of (mAP_at_threshold, list_of_aps_per_class)
+        """
+        all_aps = []
+        
+        # Process each image
+        for preds, targets in zip(predictions_list, targets_list):
+            pred_boxes = preds['boxes']
+            pred_scores = preds['scores']
+            pred_labels = preds['labels']
+            
+            gt_boxes = targets['boxes']
+            gt_labels = targets['labels']
+            
+            if len(gt_boxes) == 0:
+                continue
+            
+            # Get unique classes in ground truth
+            unique_classes = torch.unique(gt_labels).tolist()
+            
+            for cls in unique_classes:
+                # Get predictions and ground truth for this class
+                cls_pred_mask = pred_labels == cls
+                cls_gt_mask = gt_labels == cls
+                
+                cls_pred_boxes = pred_boxes[cls_pred_mask]
+                cls_pred_scores = pred_scores[cls_pred_mask]
+                cls_gt_boxes = gt_boxes[cls_gt_mask]
+                
+                if len(cls_pred_boxes) == 0 or len(cls_gt_boxes) == 0:
+                    continue
+                
+                # Sort predictions by confidence (descending)
+                sorted_indices = torch.argsort(cls_pred_scores, descending=True)
+                cls_pred_boxes = cls_pred_boxes[sorted_indices]
+                cls_pred_scores = cls_pred_scores[sorted_indices]
+                
+                # Match predictions to ground truth
+                num_preds = len(cls_pred_boxes)
+                num_gts = len(cls_gt_boxes)
+                
+                tp = np.zeros(num_preds)
+                fp = np.zeros(num_preds)
+                gt_matched = np.zeros(num_gts)
+                
+                for pred_idx in range(num_preds):
+                    pred_box = cls_pred_boxes[pred_idx].unsqueeze(0)  # Shape: (1, 4)
+                    
+                    # Calculate IoU with all unmatched ground truth boxes
+                    best_iou = 0.0
+                    best_gt_idx = -1
+                    
+                    for gt_idx in range(num_gts):
+                        if gt_matched[gt_idx] == 0:
+                            gt_box = cls_gt_boxes[gt_idx].unsqueeze(0)  # Shape: (1, 4)
+                            iou = _calculate_iou(pred_box, gt_box).item()
+                            
+                            if iou > best_iou:
+                                best_iou = iou
+                                best_gt_idx = gt_idx
+                    
+                    if best_iou >= iou_threshold and best_gt_idx >= 0:
+                        tp[pred_idx] = 1
+                        gt_matched[best_gt_idx] = 1
+                    else:
+                        fp[pred_idx] = 1
+                
+                # Calculate precision-recall and AP
+                cum_tp = np.cumsum(tp)
+                cum_fp = np.cumsum(fp)
+                
+                precision = cum_tp / (cum_tp + cum_fp + 1e-8)
+                recall = cum_tp / num_gts
+                
+                # Calculate AP using 11-point interpolation
+                ap = 0.0
+                for t in np.arange(0, 1.1, 0.1):
+                    if np.sum(recall >= t) == 0:
+                        p = 0
+                    else:
+                        p = np.max(precision[recall >= t])
+                    ap += p / 11
+                
+                all_aps.append(ap)
+        
+        # Calculate mean AP
+        map_score = np.mean(all_aps) if all_aps else 0.0
+        
+        return map_score, all_aps
+
+    def _validate(self, model, val_loader, conf_threshold: float = 0.1):
+        """Validate model and calculate mAP metrics.
+        
+        Calculates both mAP@0.5 and mAP@0.5:0.95 for comprehensive evaluation.
         
         Args:
             model: Detection model
             val_loader: Validation data loader
-            conf_threshold: Minimum confidence score to count a prediction (default: 0.1)
+            conf_threshold: Minimum confidence score for predictions (default: 0.1)
         """
         model.eval()
         
-        total_predictions = 0
-        num_batches = 0
+        all_predictions = []
+        all_targets = []
+        total_predictions_count = 0
         num_images = 0
         
         with torch.no_grad():
@@ -439,25 +574,49 @@ class TorchvisionDetectionTrainer:
                 # Run forward pass in eval mode (returns predictions)
                 predictions = model(images)
                 
-                # Count predictions above confidence threshold
-                batch_predictions = 0
-                for pred in predictions:
-                    # Filter by confidence threshold
+                # Collect predictions and targets for mAP calculation
+                for pred, target in zip(predictions, targets):
+                    # Filter predictions by confidence
                     if len(pred['scores']) > 0:
                         high_conf_mask = pred['scores'] >= conf_threshold
-                        batch_predictions += high_conf_mask.sum().item()
+                        filtered_pred = {
+                            'boxes': pred['boxes'][high_conf_mask],
+                            'labels': pred['labels'][high_conf_mask],
+                            'scores': pred['scores'][high_conf_mask]
+                        }
+                        total_predictions_count += len(filtered_pred['boxes'])
+                    else:
+                        filtered_pred = {
+                            'boxes': torch.tensor([]),
+                            'labels': torch.tensor([]),
+                            'scores': torch.tensor([])
+                        }
+                    
+                    all_predictions.append(filtered_pred)
+                    all_targets.append(target)
                 
-                total_predictions += batch_predictions
-                num_batches += 1
                 num_images += len(images)
         
-        # Use average number of predictions per image as a proxy metric
-        # This helps detect if model is learning to make meaningful predictions
-        avg_predictions_per_image = total_predictions / max(num_images, 1)
+        # Calculate mAP@0.5
+        map50, _ = self._calculate_map_simple(all_predictions, all_targets, iou_threshold=0.5)
         
-        # Return negative value so that more predictions = lower "loss"
-        # This heuristic guides early stopping toward models that produce confident detections
-        return {'loss': -avg_predictions_per_image}
+        # Calculate mAP@0.5:0.95 (average over multiple thresholds)
+        map_values = []
+        for iou_thresh in np.arange(0.5, 0.96, 0.05):
+            map_at_thresh, _ = self._calculate_map_simple(all_predictions, all_targets, iou_threshold=iou_thresh)
+            map_values.append(map_at_thresh)
+        map50_95 = np.mean(map_values)
+        
+        # Use negative mAP as loss (so that higher mAP = lower loss)
+        # This provides a meaningful metric for early stopping
+        val_loss = -map50
+        
+        return {
+            'loss': val_loss,
+            'mAP50': map50,
+            'mAP50_95': map50_95,
+            'avg_predictions': total_predictions_count / max(num_images, 1)
+        }
 
     def _log_training_history(self, log_dir: Path):
         """Save training history to CSV."""
