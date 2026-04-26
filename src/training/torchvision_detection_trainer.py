@@ -326,11 +326,12 @@ class TorchvisionDetectionTrainer:
                     elif isinstance(loss_output, (list, tuple)):
                         # SSD style: could be list of dicts or list of tensors
                         if len(loss_output) > 0 and isinstance(loss_output[0], dict):
-                            # List of dicts - sum all values from all dicts
+                            # List of dicts - sum scalar values to avoid dimension mismatch
                             losses = sum(
-                                sum(v for v in d.values()) 
+                                sum(v.item() if hasattr(v, 'item') else v for v in d.values()) 
                                 for d in loss_output
                             )
+                            losses = torch.tensor(losses, device=self.device)
                         else:
                             # List of tensors - direct sum
                             losses = sum(loss_output)
@@ -358,11 +359,12 @@ class TorchvisionDetectionTrainer:
                 elif isinstance(loss_output, (list, tuple)):
                     # SSD style
                     if len(loss_output) > 0 and isinstance(loss_output[0], dict):
-                        # List of dicts
+                        # List of dicts - sum scalar values to avoid dimension mismatch
                         losses = sum(
-                            sum(v for v in d.values()) 
+                            sum(v.item() if hasattr(v, 'item') else v for v in d.values()) 
                             for d in loss_output
                         )
+                        losses = torch.tensor(losses, device=self.device)
                     else:
                         # List of tensors
                         losses = sum(loss_output)
@@ -404,11 +406,12 @@ class TorchvisionDetectionTrainer:
                 elif isinstance(loss_output, (list, tuple)):
                     # SSD style
                     if len(loss_output) > 0 and isinstance(loss_output[0], dict):
-                        # List of dicts
+                        # List of dicts - sum scalar values
                         losses = sum(
-                            sum(v for v in d.values()) 
+                            sum(v.item() if hasattr(v, 'item') else v for v in d.values()) 
                             for d in loss_output
                         )
+                        losses = torch.tensor(losses, device=self.device)
                     else:
                         # List of tensors
                         losses = sum(loss_output)

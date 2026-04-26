@@ -93,38 +93,56 @@ else:
 
 ---
 
-### Issue 3: Loss Format Compatibility (Part 2 - Nested Dicts)
-**Problem**: `TypeError: unsupported operand type(s) for +: 'int' and 'dict'`
+### Issue 3: Loss Format Compatibility (Part 2 - Tensor Summation)
+**Problem**: `RuntimeError: The size of tensor a (4) must match the size of tensor b (200) at non-singleton dimension 1`
 
-**Root Cause**: SSD model returns a **list of dictionaries**, not a list of tensors. The previous fix only handled flat lists.
+**Root Cause**: SSD returns a list of dictionaries where values are **tensors**, not scalars. Using Python's built-in `sum()` on these tensors causes broadcasting errors when trying to add tensors of different shapes (e.g., batch dimensions or feature map dimensions).
 
 **Actual SSD Return Format**:
 ```python
-# SSD returns: [{'loss_cls': ..., 'loss_loc': ...}, {...}, ...]
-# Not: [tensor1, tensor2, ...]
+# SSD returns list of dicts with TENSOR values:
+[
+    {'loss_cls': tensor([0.5, 0.3, ...]), 'loss_loc': tensor([0.2, 0.1, ...])},
+    {'loss_cls': tensor([0.4, 0.2, ...]), 'loss_loc': tensor([0.3, 0.2, ...])},
+    ...
+]
 ```
 
-**Solution**: Enhanced type checking to handle nested structures:
+**Why Previous Fix Failed**:
+```python
+# This tries to add tensors directly → broadcasting error!
+losses = sum(sum(v for v in d.values()) for d in loss_output)
+# If tensor shapes differ across iterations or keys → RuntimeError!
+```
+
+**Solution**: Convert tensors to scalars using `.item()` before summing, then convert back to a tensor for backward propagation:
 ```python
 loss_output = model(images, targets)
 
 if isinstance(loss_output, dict):
-    # Faster R-CNN style: {'loss_classifier': ..., 'loss_box_reg': ...}
+    # Faster R-CNN style: dict with scalar tensor values
     losses = sum(loss for loss in loss_output.values())
+    
 elif isinstance(loss_output, (list, tuple)):
     if len(loss_output) > 0 and isinstance(loss_output[0], dict):
-        # SSD style: list of dicts
-        losses = sum(
-            sum(v for v in d.values()) 
+        # SSD style: list of dicts with tensor values
+        # Extract scalar values using .item() before summing to avoid shape mismatches
+        total_loss_val = sum(
+            sum(v.item() if hasattr(v, 'item') else v for v in d.values()) 
             for d in loss_output
         )
+        losses = torch.tensor(total_loss_val, device=self.device)
     else:
         # List of tensors
         losses = sum(loss_output)
 else:
-    # Single tensor
     losses = loss_output
 ```
+
+**Key Points**:
+- Use `.item()` to convert single-element tensors to Python floats/scalars.
+- Check with `hasattr(v, 'item')` for safety against non-tensor types.
+- Convert the final summed scalar back to a PyTorch tensor (`torch.tensor(...)`) on the correct device to ensure `loss.backward()` works correctly.
 
 **Files Modified**: `src/training/torchvision_detection_trainer.py`
 - `_train_one_epoch()` method
