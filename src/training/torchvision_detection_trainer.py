@@ -26,7 +26,8 @@ class DetectionDataset(Dataset):
     """
     
     def __init__(self, images_dir: str, annotations_file: str = None, 
-                 annotations_dir: str = None, transform=None, is_voc: bool = False):
+                 annotations_dir: str = None, transform=None, is_voc: bool = False,
+                 class_names: list = None):
         """
         Initialize dataset.
         
@@ -36,10 +37,20 @@ class DetectionDataset(Dataset):
             annotations_dir: Directory containing XML files (for VOC format)
             transform: Data augmentation transforms
             is_voc: Whether using VOC format
+            class_names: List of class names for VOC format (optional, defaults to ['dog'])
         """
         self.images_dir = Path(images_dir)
         self.transform = transform
         self.is_voc = is_voc
+        
+        # Set up class name to ID mapping for VOC format
+        if is_voc:
+            if class_names is None:
+                # Default to single class 'dog' for this project
+                self.class_names = ['dog']
+            else:
+                self.class_names = class_names
+            self.class_to_id = {name: idx for idx, name in enumerate(self.class_names)}
         
         # Load annotations
         if is_voc:
@@ -87,13 +98,20 @@ class DetectionDataset(Dataset):
                     ymax = int(bndbox.find('ymax').text)
                     
                     boxes.append([xmin, ymin, xmax, ymax])
-                    # Note: You need a class name to ID mapping
-                    labels.append(0)  # Placeholder - should map from class name
+                    
+                    # Map class name to ID
+                    if name in self.class_to_id:
+                        labels.append(self.class_to_id[name])
+                    else:
+                        # Unknown class, skip this object or assign to background
+                        print(f"Warning: Unknown class '{name}' in {img_path.stem}, skipping")
+                        continue
                 
-                annotations[str(img_path)] = {
-                    'boxes': torch.as_tensor(boxes, dtype=torch.float32),
-                    'labels': torch.as_tensor(labels, dtype=torch.int64)
-                }
+                if boxes:  # Only add annotation if there are valid boxes
+                    annotations[str(img_path)] = {
+                        'boxes': torch.as_tensor(boxes, dtype=torch.float32),
+                        'labels': torch.as_tensor(labels, dtype=torch.int64)
+                    }
         
         return annotations
     

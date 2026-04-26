@@ -65,14 +65,14 @@ def main():
     # Create datasets (VOC format)
     train_dataset = DetectionDataset(
         images_dir=str(images_base_path / "train"),
-        annotations_file=str(voc_annotations_path / "train"),
-        format_type='voc'
+        annotations_dir=str(voc_annotations_path / "train"),
+        is_voc=True
     )
     
     val_dataset = DetectionDataset(
         images_dir=str(images_base_path / "val"),
-        annotations_file=str(voc_annotations_path / "val"),
-        format_type='voc'
+        annotations_dir=str(voc_annotations_path / "val"),
+        is_voc=True
     )
     
     logger.info(f"Train dataset: {len(train_dataset)} images")
