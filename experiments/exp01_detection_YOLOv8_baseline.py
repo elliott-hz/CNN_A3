@@ -46,19 +46,11 @@ def main():
     
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Run Experiment 01: Detection Baseline')
-    parser.add_argument('--use-small-subset', action='store_true', 
-                        help='Use small subset for quick testing (default: False)')
-    parser.add_argument('--no-small-subset', action='store_false', dest='use_small_subset',
-                        help='Use full dataset instead of small subset')
     parser.add_argument('--resume', action='store_true',
                         help='Resume training from the latest checkpoint in the latest run directory')
     
-    parser.set_defaults(use_small_subset=False)  # Default to False (full dataset)
-    
     args = parser.parse_args()
     
-    # Configuration flags
-    USE_SMALL_SUBSET = args.use_small_subset
     RESUME_TRAINING = args.resume
     
     # Setup
@@ -80,26 +72,16 @@ def main():
         logger = setup_logger(experiment_name)
         logger.info("=" * 80)
         logger.info(f"STARTING NEW EXPERIMENT: {experiment_name}")
-        if USE_SMALL_SUBSET:
-            logger.info("MODE: Using SMALL SUBSET for quick testing")
-        else:
-            logger.info("MODE: Using FULL DATASET")
         logger.info("=" * 80)
     
     # Step 1: Load dataset configuration
     logger.info("\n[Step 1/5] Loading dataset configuration...")
     
-    if USE_SMALL_SUBSET:
-        dataset_config_path = Path("data/processed/detection_small/dataset.yaml")
-    else:
-        dataset_config_path = Path("data/processed/detection/dataset.yaml")
+    dataset_config_path = Path("data/processed/detection/dataset.yaml")
     
     if not dataset_config_path.exists():
         logger.error(f"Dataset config not found: {dataset_config_path}")
-        if USE_SMALL_SUBSET:
-            logger.error("Please create subset first: python src/data_processing/create_detection_subset.py")
-        else:
-            logger.error("Please run preprocessing first: bash scripts/run_data_preprocessing.sh")
+        logger.error("Please run preprocessing first: bash scripts/run_data_preprocessing.sh")
         sys.exit(1)
     
     with open(dataset_config_path, 'r') as f:

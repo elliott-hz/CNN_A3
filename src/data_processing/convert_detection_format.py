@@ -198,7 +198,8 @@ class DetectionFormatConverter:
             print(f"    Annotations: {len(coco_data['annotations'])}")
         
         # Create dataset.yaml for COCO format
-        dataset_yaml_content = f"""path: .
+        # Use relative path from project root for consistency with YOLO format
+        dataset_yaml_content = f"""path: data/processed/detection_coco
 train: images/train
 val: images/val
 test: images/test
@@ -342,7 +343,8 @@ names: {self.class_names}
             print(f"  ✓ Saved {count} XML files to {annotations_split_dir}")
         
         # Create dataset.yaml for VOC format
-        dataset_yaml_content = f"""path: .
+        # Use relative path from project root for consistency with YOLO format
+        dataset_yaml_content = f"""path: data/processed/detection_voc
 train: images/train
 val: images/val
 test: images/test

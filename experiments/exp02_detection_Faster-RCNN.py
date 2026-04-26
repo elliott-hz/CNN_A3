@@ -6,7 +6,6 @@ Configuration: Two-stage detector with ResNet50 backbone and FPN
 """
 
 import sys
-import argparse
 from pathlib import Path
 import torch
 import numpy as np
@@ -34,15 +33,6 @@ def set_seed(seed=42):
 def main():
     """Run Experiment 02: Faster R-CNN Detection."""
     
-    # Parse command line arguments
-    parser = argparse.ArgumentParser(description='Run Experiment 02: Faster R-CNN Detection')
-    parser.add_argument('--use-small-subset', action='store_true', 
-                        help='Use small subset for quick testing')
-    parser.set_defaults(use_small_subset=False)
-    
-    args = parser.parse_args()
-    USE_SMALL_SUBSET = args.use_small_subset
-    
     # Set random seed
     set_seed(42)
     
@@ -54,21 +44,13 @@ def main():
     logger.info("=" * 80)
     logger.info(f"STARTING EXPERIMENT: {experiment_name}")
     logger.info("Model: Faster R-CNN with ResNet50+FPN backbone")
-    if USE_SMALL_SUBSET:
-        logger.info("MODE: Using SMALL SUBSET for quick testing")
-    else:
-        logger.info("MODE: Using FULL DATASET")
     logger.info("=" * 80)
     
     # Step 1: Load dataset
     logger.info("\n[Step 1/5] Loading dataset...")
     
-    if USE_SMALL_SUBSET:
-        coco_annotations_path = Path("data/processed/detection_coco_small/annotations")
-        images_base_path = Path("data/processed/detection_coco_small/images")
-    else:
-        coco_annotations_path = Path("data/processed/detection_coco/annotations")
-        images_base_path = Path("data/processed/detection_coco/images")
+    coco_annotations_path = Path("data/processed/detection_coco/annotations")
+    images_base_path = Path("data/processed/detection_coco/images")
     
     # Check if COCO format data exists
     if not coco_annotations_path.exists():
@@ -154,12 +136,8 @@ def main():
         logger.warning("Best model not found, using current model state")
     
     # Create test dataset
-    if USE_SMALL_SUBSET:
-        test_annotations_path = Path("data/processed/detection_coco_small/annotations/instances_test.json")
-        test_images_path = Path("data/processed/detection_coco_small/images/test")
-    else:
-        test_annotations_path = Path("data/processed/detection_coco/annotations/instances_test.json")
-        test_images_path = Path("data/processed/detection_coco/images/test")
+    test_annotations_path = Path("data/processed/detection_coco/annotations/instances_test.json")
+    test_images_path = Path("data/processed/detection_coco/images/test")
     
     if test_annotations_path.exists():
         test_dataset = DetectionDataset(
