@@ -125,20 +125,20 @@ def main():
     
     model_config = BASELINE_CLASSIFICATION_CONFIG.copy()
     
-    # Adjust training configuration to prevent overfitting and support >100 epochs
+    # Adjust training configuration to prevent overfitting and support extended training
     training_config = {
-        'learning_rate': 0.0002,      # ↑ Increased LR for faster convergence
+        'learning_rate': 0.0002,      # Learning rate for AdamW
         'batch_size': 32,
-        'epochs': 180,                 # ↑ Extended training duration
+        'epochs': 250,                 # ↑ Extended from 180 for longer training
         'optimizer': 'adamw',          # AdamW for better weight decay handling
-        'weight_decay': 5e-3,          # ↓ Slightly reduced WD to avoid over-regularization
-        'early_stopping_patience': 25, # ↑ Increased patience for longer training
+        'weight_decay': 5e-3,          # Weight decay for regularization
+        'early_stopping_patience': 40, # ↑ Increased from 25 to allow longer training
         'use_amp': True,
         'gradient_accumulation_steps': 1,
         'label_smoothing': 0.1,
         'class_weighting': True,
         'lr_scheduler': 'cosine_annealing_warm_restarts', # Periodic restarts for long training
-        'T_0': 30,                     # ↑ Extended restart interval
+        'T_0': 50,                     # ↑ Increased from 30 for smoother LR decay
         'T_mult': 2,                   # Interval multiplier
         'eta_min': 1e-6                # Minimum learning rate
     }

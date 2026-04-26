@@ -116,23 +116,30 @@ class ResNet50Classifier(nn.Module):
         
         return x
     
-    def unfreeze_backbone(self, unfreeze_all: bool = False):
+    def unfreeze_backbone(self, unfreeze_all: bool = False, unfreeze_layer2: bool = False):
         """
         Unfreeze backbone layers for fine-tuning.
         
         Args:
             unfreeze_all: If True, unfreeze all layers. If False, only unfreeze later layers.
+            unfreeze_layer2: If True, also unfreeze layer2 (for ResNet50 extended fine-tuning)
         """
         if unfreeze_all:
             # Unfreeze all layers
             for param in self.backbone.parameters():
                 param.requires_grad = True
         else:
-            # Only unfreeze later layers (layer3 and layer4)
+            # Unfreeze layer3 and layer4 (standard partial unfreeze)
             for param in self.backbone.layer3.parameters():
                 param.requires_grad = True
             for param in self.backbone.layer4.parameters():
                 param.requires_grad = True
+            
+            # Also unfreeze layer2 if requested (extended fine-tuning)
+            if unfreeze_layer2:
+                for param in self.backbone.layer2.parameters():
+                    param.requires_grad = True
+                print("  Extended unfreeze: layer2 + layer3 + layer4")
             
             # Also unfreeze bn1 if present
             for param in self.backbone.bn1.parameters():
@@ -274,11 +281,10 @@ class AlexNetClassifier(nn.Module):
         
         # Replace classifier head
         # Original AlexNet classifier: 9216 -> 4096 -> 4096 -> 1000
-        # We replace with: 9216 -> 512 -> num_classes (with BatchNorm for better training)
+        # We replace with: 9216 -> 512 -> num_classes (simplified, no BatchNorm for stability)
         self.classifier = nn.Sequential(
             nn.Dropout(self.dropout_rate),
             nn.Linear(9216, 512),
-            nn.BatchNorm1d(512),  # Added BatchNorm for stability
             nn.ReLU(inplace=True),
             nn.Dropout(self.dropout_rate),
             nn.Linear(512, self.num_classes)

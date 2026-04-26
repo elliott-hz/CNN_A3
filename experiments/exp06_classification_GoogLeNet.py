@@ -131,23 +131,23 @@ def main():
     logger.info("\n[Step 2/4] Initializing model and trainer...")
     
     model_config = GOOGLENET_BASELINE_CONFIG.copy()
-    # Disable auxiliary classifiers to reduce noise and simplify training
-    model_config['use_auxiliary'] = False
+    # Re-enable auxiliary classifiers for multi-task learning (critical for GoogLeNet)
+    model_config['use_auxiliary'] = True
     
-    # Training configuration optimized for GoogLeNet - higher LR and full unfreeze
+    # Training configuration optimized for GoogLeNet with auxiliary classifiers enabled
     training_config = {
-        'learning_rate': 0.001,       # ↑↑ Increased LR (Inception needs higher LR)
+        'learning_rate': 0.002,       # ↑ Increased from 0.001 to balance aux losses
         'batch_size': 32,             # Unified batch size
-        'epochs': 180,                # ↑ Extended training duration
+        'epochs': 180,                # Training duration
         'optimizer': 'adamw',         # AdamW for better weight decay handling
-        'weight_decay': 5e-3,         # ↓ Reduced WD to avoid over-regularization
-        'early_stopping_patience': 25, # ↑ Increased patience
+        'weight_decay': 5e-3,         # Weight decay
+        'early_stopping_patience': 25, # Patience for early stopping
         'use_amp': True,
         'gradient_accumulation_steps': 1,
         'label_smoothing': 0.1,
         'class_weighting': True,
         'lr_scheduler': 'cosine_annealing_warm_restarts',
-        'T_0': 25,                    # Restart interval
+        'T_0': 30,                    # ↑ Increased from 25 for longer exploration
         'T_mult': 2,                  # Interval multiplier
         'eta_min': 1e-6               # Minimum learning rate
     }

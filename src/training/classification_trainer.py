@@ -238,9 +238,23 @@ class ClassificationTrainer:
             print("=" * 80)
             
             # Determine unfreeze strategy based on model type
-            # GoogLeNet benefits from full unfreeze, others use partial unfreeze
-            unfreeze_all = self.model_config.get('architecture', '').lower() == 'googlenet'
-            model.unfreeze_backbone(unfreeze_all=unfreeze_all)
+            # ResNet50: Unfreeze layer2+3+4 for better adaptation (extended from layer3+4)
+            # GoogLeNet: Use partial unfreeze instead of full unfreeze to preserve pretrained features
+            # AlexNet: Use partial unfreeze (last 2 conv layers)
+            architecture = self.model_config.get('architecture', '').lower()
+            
+            if 'resnet' in architecture or (architecture == '' and 'resnet50' in str(type(model)).lower()):
+                # ResNet50: Unfreeze layer2, layer3, layer4 for more adaptation capacity
+                print("  Unfreezing strategy: layer2 + layer3 + layer4")
+                model.unfreeze_backbone(unfreeze_all=False, unfreeze_layer2=True)
+            elif 'googlenet' in architecture or 'inception' in str(type(model)).lower():
+                # GoogLeNet: Partial unfreeze (preserve early layers)
+                print("  Unfreezing strategy: partial (inception4+ modules)")
+                model.unfreeze_backbone(unfreeze_all=False)
+            else:
+                # AlexNet and others: Default partial unfreeze
+                print("  Unfreezing strategy: partial (last conv layers)")
+                model.unfreeze_backbone(unfreeze_all=False)
             
             finetune_lr = self.lr * 0.1  # Lower learning rate for fine-tuning
             optimizer = model.get_optimizer(lr=finetune_lr, weight_decay=self.weight_decay,
