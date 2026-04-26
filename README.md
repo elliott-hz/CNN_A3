@@ -452,7 +452,12 @@ All three classification experiments use the **same dataset and preprocessing pi
 | **Exp04** | ResNet50 | ~25.6M | 2015 (Modern) | Skip connections, deep network |
 | **Exp05** | AlexNet | ~60M | 2012 (Classic) | Simple, large FC layers |
 | **Exp06** | GoogLeNet | ~7M | 2014 (Efficient) | Inception modules, auxiliary loss |
-```
+
+**📊 For detailed configuration comparison** (model hyperparameters, training strategies, LR scheduling, regularization, data augmentation, etc.), see the comprehensive documentation stored in project memory: **"Classification Experiments Complete Configuration Comparison"**. This includes:
+- Complete configuration matrix with 15+ categories
+- Key design decisions explained
+- Expected performance characteristics
+- Reproducibility notes and quick reference commands
 
 ---
 
