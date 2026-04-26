@@ -269,57 +269,41 @@ class SSDDetector(nn.Module):
             weights_backbone=None if not self.pretrained else "DEFAULT"
         )
         
-        # Replace the classification head for custom number of classes
-        # SSD has multiple heads at different scales
-        
-        # Get anchor generator to determine number of anchors per location for each feature layer
-        num_anchors = self.model.anchor_generator.num_anchors_per_location()  # Returns list like [4, 6, 6, 6, 4, 4]
-        
-        # SSD uses 6 feature layers with different channel counts
-        # From backbone output: [512, 1024, 512, 256, 256, 256]
+        # Replace the classification and regression heads for custom number of classes
+        # SSD has 6 feature layers with different channel counts
         in_channels = [512, 1024, 512, 256, 256, 256]
-        
-        # CRITICAL FIX: Instead of creating new random heads, modify existing ones
-        # The pretrained COCO model has 91 classes (including background)
-        # We need to replace only the last layer while keeping learned features
+        num_anchors = self.model.anchor_generator.num_anchors_per_location()
         
         from torchvision.models.detection.ssd import SSDClassificationHead, SSDRegressionHead
         
-        # Create new heads with correct number of classes
-        new_classification_head = SSDClassificationHead(
+        # Create new heads with proper initialization to reduce false positives
+        prior_prob = 0.01
+        bias_value = -torch.log(torch.tensor((1 - prior_prob) / prior_prob))
+        
+        self.model.head.classification_head = SSDClassificationHead(
             in_channels=in_channels,
             num_anchors=num_anchors,
             num_classes=self.num_classes
         )
         
-        new_regression_head = SSDRegressionHead(
+        self.model.head.regression_head = SSDRegressionHead(
             in_channels=in_channels,
             num_anchors=num_anchors
         )
         
-        # Initialize weights properly using Kaiming initialization
-        # This is crucial for avoiding massive false positives
-        for module in new_classification_head.modules():
-            if isinstance(module, torch.nn.Conv2d):
-                torch.nn.init.kaiming_normal_(module.weight, mode='fan_out', nonlinearity='relu')
-                if module.bias is not None:
-                    torch.nn.init.constant_(module.bias, 0)
-        
-        for module in new_regression_head.modules():
-            if isinstance(module, torch.nn.Conv2d):
-                torch.nn.init.kaiming_normal_(module.weight, mode='fan_out', nonlinearity='relu')
-                if module.bias is not None:
-                    torch.nn.init.constant_(module.bias, 0)
-        
-        # Set bias for classification head to encourage background prediction initially
-        # This helps reduce false positives in early training
-        for module in new_classification_head.modules():
-            if isinstance(module, torch.nn.Conv2d):
-                # Initialize bias to favor background class (index 0)
-                torch.nn.init.constant_(module.bias, -torch.log(torch.tensor((self.num_classes - 1) / 1.0)))
-        
-        self.model.head.classification_head = new_classification_head
-        self.model.head.regression_head = new_regression_head
+        # Initialize output layer biases to favor background class initially
+        # This is critical for reducing massive false positives in SSD
+        for head in [self.model.head.classification_head, self.model.head.regression_head]:
+            for module in head.modules():
+                if isinstance(module, torch.nn.Conv2d):
+                    torch.nn.init.kaiming_normal_(module.weight, mode='fan_out', nonlinearity='relu')
+                    if module.bias is not None:
+                        # Apply negative bias only to classification head's output layers
+                        if (hasattr(head, 'num_classes') and 
+                            module.out_channels == self.num_classes * max(num_anchors)):
+                            torch.nn.init.constant_(module.bias, bias_value)
+                        else:
+                            torch.nn.init.constant_(module.bias, 0)
         
         # Update transform parameters
         self.model.transform.min_size = (self.min_size,)
