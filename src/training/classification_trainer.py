@@ -82,6 +82,13 @@ class AugmentedDataset(Dataset):
         # Convert to tensor (ToTensor automatically normalizes to [0, 1])
         tensor_img = transforms.ToTensor()(pil_img)
         
+        # Apply ImageNet normalization
+        normalize = transforms.Normalize(
+            mean=[0.485, 0.456, 0.406],
+            std=[0.229, 0.224, 0.225]
+        )
+        tensor_img = normalize(tensor_img)
+        
         return tensor_img, label
 
 
@@ -128,6 +135,12 @@ class ClassificationTrainer:
         # Learning rate decay configuration (optional, with defaults for backward compatibility)
         self.lr_decay_factor = training_config.get('lr_decay_factor', 0.7)
         self.lr_decay_interval = training_config.get('lr_decay_interval', 20)
+        
+        # Advanced scheduler configuration
+        self.scheduler_type = training_config.get('lr_scheduler', None)
+        self.T_0 = training_config.get('T_0', 10)
+        self.T_mult = training_config.get('T_mult', 1)
+        self.eta_min = training_config.get('eta_min', 0)
         
         # Device setup
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -258,6 +271,14 @@ class ClassificationTrainer:
             log_dir: Directory to save logs
             phase_name: Name of the training phase
         """
+        # Initialize scheduler if specified
+        scheduler = None
+        if self.scheduler_type == 'cosine_annealing_warm_restarts':
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+                optimizer, T_0=self.T_0, T_mult=self.T_mult, eta_min=self.eta_min
+            )
+            print(f"  Using {self.scheduler_type} scheduler (T_0={self.T_0}, T_mult={self.T_mult})")
+        
         for epoch in range(num_epochs):
             # Training
             train_loss, train_acc = self._train_epoch(
@@ -268,7 +289,10 @@ class ClassificationTrainer:
             val_loss, val_acc = self._validate(model, val_loader, criterion)
             
             # Update learning rate scheduler
-            self._update_scheduler(optimizer, val_loss, epoch)
+            if scheduler is not None:
+                scheduler.step()
+            else:
+                self._update_scheduler(optimizer, val_loss, epoch)
             
             # Log metrics
             metrics = {

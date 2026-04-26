@@ -704,7 +704,7 @@ BASELINE_CLASSIFICATION_CONFIG = {
     'dropout_rate': 0.5,
     'pretrained': True,
     'freeze_backbone': True,
-    'additional_fc_layers': False,
+    'additional_fc_layers': True,  # Enabled for standardized MLP head comparison
     'use_batch_norm': True
 }
 

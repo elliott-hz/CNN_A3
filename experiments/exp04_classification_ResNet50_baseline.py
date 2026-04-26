@@ -125,18 +125,22 @@ def main():
     
     model_config = BASELINE_CLASSIFICATION_CONFIG.copy()
     
-    # Adjust training configuration to prevent overfitting
+    # Adjust training configuration to prevent overfitting and support >100 epochs
     training_config = {
-        'learning_rate': 0.0005,  # Reduced from 0.001 to slow down learning
+        'learning_rate': 0.0001,      # Lower LR for stable fine-tuning
         'batch_size': 32,
-        'epochs': 120,
-        'optimizer': 'adam',
-        'weight_decay': 5e-4,  # Increased from 1e-4 for stronger regularization
-        'early_stopping_patience': 0,  # Disabled early stopping to ensure full training
+        'epochs': 150,                 # Increased to ensure >100 epochs
+        'optimizer': 'adamw',          # AdamW for better weight decay handling
+        'weight_decay': 1e-2,          # Stronger regularization to prevent overfitting
+        'early_stopping_patience': 20, # Allow more time for convergence
         'use_amp': True,
         'gradient_accumulation_steps': 1,
         'label_smoothing': 0.1,
-        'class_weighting': True
+        'class_weighting': True,
+        'lr_scheduler': 'cosine_annealing_warm_restarts', # Periodic restarts for long training
+        'T_0': 20,                     # Restart interval
+        'T_mult': 2,                   # Interval multiplier
+        'eta_min': 1e-6                # Minimum learning rate
     }
     
     logger.info(f"Model config: {model_config}")

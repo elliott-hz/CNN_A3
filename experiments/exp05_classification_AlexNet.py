@@ -132,21 +132,22 @@ def main():
     
     model_config = ALEXNET_BASELINE_CONFIG.copy()
     
-    # Training configuration optimized for AlexNet
+    # Training configuration optimized for AlexNet with unified strategy
     training_config = {
-        'learning_rate': 0.01,        # Higher initial LR for SGD (10x increase)
-        'batch_size': 64,             # Larger batch size (AlexNet is lighter)
-        'epochs': 200,                # Increased from 120 to allow longer training
-        'optimizer': 'sgd',           # SGD with momentum (traditional for AlexNet)
-        'momentum': 0.9,              # Explicit momentum for SGD
-        'weight_decay': 5e-4,         # Stronger L2 regularization (5x increase)
-        'early_stopping_patience': 30, # Increased patience to avoid premature stopping
-        'use_amp': True,              # Mixed precision training
+        'learning_rate': 0.0001,      # Unified LR for fair comparison
+        'batch_size': 32,             # Unified batch size
+        'epochs': 150,                # Ensure >100 epochs
+        'optimizer': 'adamw',         # Switched from SGD to AdamW for stability
+        'weight_decay': 1e-2,         # Stronger regularization for AlexNet's large FC layers
+        'early_stopping_patience': 20, # Increased patience
+        'use_amp': True,
         'gradient_accumulation_steps': 1,
         'label_smoothing': 0.1,
         'class_weighting': True,
-        'lr_decay_factor': 0.5,       # Gentler decay (was implicit 0.7 in trainer)
-        'lr_decay_interval': 40       # Decay every 40 epochs instead of 20
+        'lr_scheduler': 'cosine_annealing_warm_restarts',
+        'T_0': 20,
+        'T_mult': 2,
+        'eta_min': 1e-6
     }
     
     logger.info(f"Model config: {model_config}")

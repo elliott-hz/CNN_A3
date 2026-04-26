@@ -132,18 +132,22 @@ def main():
     
     model_config = GOOGLENET_BASELINE_CONFIG.copy()
     
-    # Training configuration optimized for GoogLeNet
+    # Training configuration optimized for GoogLeNet with unified strategy
     training_config = {
-        'learning_rate': 0.001,       # Standard LR for GoogLeNet
-        'batch_size': 32,             # Moderate batch size
-        'epochs': 120,                 # Same as other experiments for fair comparison
-        'optimizer': 'adam',          # Adam optimizer works well with Inception
-        'weight_decay': 1e-4,
-        'early_stopping_patience': 15, # Early stopping enabled
-        'use_amp': True,              # Mixed precision training
+        'learning_rate': 0.0001,      # Unified LR for fair comparison
+        'batch_size': 32,             # Unified batch size
+        'epochs': 150,                # Ensure >100 epochs
+        'optimizer': 'adamw',         # AdamW for better weight decay handling
+        'weight_decay': 1e-2,         # Stronger regularization
+        'early_stopping_patience': 20, # Increased patience
+        'use_amp': True,
         'gradient_accumulation_steps': 1,
         'label_smoothing': 0.1,
-        'class_weighting': True
+        'class_weighting': True,
+        'lr_scheduler': 'cosine_annealing_warm_restarts',
+        'T_0': 20,
+        'T_mult': 2,
+        'eta_min': 1e-6
     }
     
     logger.info(f"Model config: {model_config}")
