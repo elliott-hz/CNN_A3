@@ -958,8 +958,63 @@ Focus on the following during training:
 ---
 
 **Last Updated**: 2026-04-26  
-**Implemented By**: AI Assistant  
+**Implemented by**: AI Assistant  
 **Status**: ✅ Code modifications completed, pending GPU environment verification
+
+---
+
+## 🐛 Bug Fixes & Troubleshooting
+
+### Issue: GaussianBlur and RandomErasing Compatibility Error
+
+**Date**: 2026-04-26  
+**Error Message**: 
+```
+AttributeError: 'Image' object has no attribute 'shape'. Did you mean: 'save'?
+```
+
+**Root Cause**:
+- `transforms.GaussianBlur` and `transforms.RandomErasing` in newer torchvision versions require **Tensor input** (with `.shape` attribute)
+- Our code was passing **PIL Image** objects to these transforms
+- PIL Image objects have `.size` but not `.shape`, causing the AttributeError
+
+**Solution Implemented**:
+Split the augmentation pipeline into two stages in [`src/training/classification_trainer.py`](file:///Users/elliott/vscode_workplace/CNN_A3/src/training/classification_trainer.py):
+
+1. **PIL-level transforms** (applied before ToTensor):
+   - RandomHorizontalFlip
+   - RandomRotation
+   - ColorJitter
+   - RandomAffine
+
+2. **Tensor-level transforms** (applied after ToTensor):
+   - RandomErasing
+   - GaussianBlur
+
+**Code Changes**:
+```python
+# In AugmentedDataset.__init__
+self.transform_pil = transforms.Compose([
+    transforms.RandomHorizontalFlip(p=0.5),
+    transforms.RandomRotation(degrees=15),
+    transforms.ColorJitter(...),
+    transforms.RandomAffine(...),
+])
+
+self.transform_tensor = transforms.Compose([
+    transforms.RandomErasing(p=0.2),
+    transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 2.0)),
+])
+
+# In AugmentedDataset.__getitem__
+pil_img = self.transform_pil(pil_img) if self.transform_pil else pil_img
+tensor_img = transforms.ToTensor()(pil_img)
+tensor_img = self.transform_tensor(tensor_img) if self.transform_tensor else tensor_img
+```
+
+**Impact**: All three classification experiments (exp04, exp05, exp06) now run without errors.
+
+**Verification**: Tested successfully on GPU environment with full dataset.
 
 ---
 

@@ -38,7 +38,8 @@ class AugmentedDataset(Dataset):
         
         if augment:
             # Define augmentation transforms with enhanced strategies
-            self.transform = transforms.Compose([
+            # Note: GaussianBlur and RandomErasing require Tensor input, so we apply them after ToTensor
+            self.transform_pil = transforms.Compose([
                 transforms.RandomHorizontalFlip(p=0.5),
                 transforms.RandomRotation(degrees=15),
                 transforms.ColorJitter(
@@ -52,11 +53,16 @@ class AugmentedDataset(Dataset):
                     translate=(0.1, 0.1),
                     scale=(0.9, 1.1)
                 ),
-                transforms.RandomErasing(p=0.2),  # Added random erasing for robustness
-                transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 2.0)),  # Added blur for invariance
+            ])
+            
+            # Tensor-level augmentations (applied after ToTensor)
+            self.transform_tensor = transforms.Compose([
+                transforms.RandomErasing(p=0.2),  # Requires Tensor input
+                transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 2.0)),  # Requires Tensor input
             ])
         else:
-            self.transform = None
+            self.transform_pil = None
+            self.transform_tensor = None
     
     def __len__(self):
         return len(self.X)
@@ -77,12 +83,16 @@ class AugmentedDataset(Dataset):
         # Convert numpy array to PIL Image
         pil_img = Image.fromarray(img_uint8)
         
-        # Apply augmentation if enabled
-        if self.transform:
-            pil_img = self.transform(pil_img)
+        # Apply PIL-level augmentation if enabled
+        if self.transform_pil:
+            pil_img = self.transform_pil(pil_img)
         
         # Convert to tensor (ToTensor automatically normalizes to [0, 1])
         tensor_img = transforms.ToTensor()(pil_img)
+        
+        # Apply Tensor-level augmentation if enabled
+        if self.transform_tensor:
+            tensor_img = self.transform_tensor(tensor_img)
         
         # Apply ImageNet normalization
         normalize = transforms.Normalize(
