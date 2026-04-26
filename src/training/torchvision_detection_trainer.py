@@ -260,10 +260,14 @@ class TorchvisionDetectionTrainer:
         def collate_fn(batch):
             return tuple(zip(*batch))
         
+        # Use num_workers=0 to avoid potential deadlocks on some systems
+        # Can be increased to 2-4 if needed for performance
+        num_workers = 2 if torch.cuda.is_available() else 0
+        
         train_loader = DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True, 
-                                  collate_fn=collate_fn, num_workers=4, pin_memory=True)
+                                  collate_fn=collate_fn, num_workers=num_workers, pin_memory=True)
         val_loader = DataLoader(val_dataset, batch_size=self.batch_size, shuffle=False,
-                                collate_fn=collate_fn, num_workers=4, pin_memory=True)
+                                collate_fn=collate_fn, num_workers=num_workers, pin_memory=True)
         
         # Training loop
         print(f"\nStarting training for {self.epochs} epochs...")
@@ -410,17 +414,23 @@ class TorchvisionDetectionTrainer:
         avg_loss = total_loss / num_batches
         return {'loss': avg_loss}
     
-    def _validate(self, model, val_loader):
-        """Validate model and calculate mAP for early stopping.
+    def _validate(self, model, val_loader, conf_threshold: float = 0.1):
+        """Validate model and calculate a proxy metric for early stopping.
         
         Note: Torchvision detection models do NOT return losses in eval mode.
         Instead of returning dummy loss, we calculate a simple validation metric
-        based on the number of valid predictions to guide early stopping.
+        based on the number of valid predictions (above confidence threshold) to guide early stopping.
+        
+        Args:
+            model: Detection model
+            val_loader: Validation data loader
+            conf_threshold: Minimum confidence score to count a prediction (default: 0.1)
         """
         model.eval()
         
         total_predictions = 0
         num_batches = 0
+        num_images = 0
         
         with torch.no_grad():
             for images, targets in tqdm(val_loader, desc="Validation", leave=False):
@@ -429,19 +439,25 @@ class TorchvisionDetectionTrainer:
                 # Run forward pass in eval mode (returns predictions)
                 predictions = model(images)
                 
-                # Count total predictions across all images in batch
+                # Count predictions above confidence threshold
+                batch_predictions = 0
                 for pred in predictions:
-                    total_predictions += len(pred['boxes'])
+                    # Filter by confidence threshold
+                    if len(pred['scores']) > 0:
+                        high_conf_mask = pred['scores'] >= conf_threshold
+                        batch_predictions += high_conf_mask.sum().item()
                 
+                total_predictions += batch_predictions
                 num_batches += 1
+                num_images += len(images)
         
-        # Use average number of predictions as a proxy metric
-        # This helps detect if model is learning to make predictions
-        avg_predictions = total_predictions / max(num_batches, 1)
+        # Use average number of predictions per image as a proxy metric
+        # This helps detect if model is learning to make meaningful predictions
+        avg_predictions_per_image = total_predictions / max(num_images, 1)
         
         # Return negative value so that more predictions = lower "loss"
-        # This is a heuristic - ideally you'd use actual mAP calculation
-        return {'loss': -avg_predictions}
+        # This heuristic guides early stopping toward models that produce confident detections
+        return {'loss': -avg_predictions_per_image}
 
     def _log_training_history(self, log_dir: Path):
         """Save training history to CSV."""
