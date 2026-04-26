@@ -1,6 +1,7 @@
 """
 Classification Model Definition
-Single ResNet50Classifier class with configurable parameters for different variants
+Multiple classifier architectures: ResNet50, AlexNet, GoogLeNet
+Each with configurable parameters for different experiment variants
 """
 
 import torch
@@ -227,17 +228,420 @@ class ResNet50Classifier(nn.Module):
         return model
 
 
-def create_classification_model(config: Dict[str, Any]) -> ResNet50Classifier:
+class AlexNetClassifier(nn.Module):
+    """
+    AlexNet classifier with configurable parameters.
+    
+    This class wraps the AlexNet model and allows for different configurations
+    through the config parameter.
+    
+    Architecture:
+    - 5 convolutional layers with max pooling
+    - 3 fully connected layers
+    - Dropout for regularization
+    """
+    
+    def __init__(self, config: Dict[str, Any]):
+        """
+        Initialize AlexNet classifier with configuration.
+        
+        Args:
+            config: Dictionary with model configuration parameters
+                - num_classes: Number of output classes (default 5)
+                - dropout_rate: Dropout rate in classifier (default 0.5)
+                - pretrained: Whether to use pretrained ImageNet weights (default True)
+                - freeze_backbone: Whether to freeze feature extractor initially (default True)
+        """
+        super(AlexNetClassifier, self).__init__()
+        
+        # Store configuration
+        self.config = config
+        self.num_classes = config.get('num_classes', 5)
+        self.dropout_rate = config.get('dropout_rate', 0.5)
+        self.pretrained = config.get('pretrained', True)
+        self.freeze_backbone = config.get('freeze_backbone', True)
+        
+        # Load pretrained AlexNet
+        if self.pretrained:
+            self.backbone = models.alexnet(weights=models.AlexNet_Weights.IMAGENET1K_V1)
+        else:
+            self.backbone = models.alexnet(weights=None)
+        
+        # Freeze backbone if specified
+        if self.freeze_backbone:
+            for param in self.backbone.features.parameters():
+                param.requires_grad = False
+        
+        # Replace classifier head
+        # Original AlexNet classifier: 9216 -> 4096 -> 4096 -> 1000
+        # We replace with: 9216 -> 512 -> num_classes
+        self.classifier = nn.Sequential(
+            nn.Dropout(self.dropout_rate),
+            nn.Linear(9216, 512),
+            nn.ReLU(inplace=True),
+            nn.Dropout(self.dropout_rate),
+            nn.Linear(512, self.num_classes)
+        )
+    
+    def forward(self, x):
+        """
+        Forward pass through the model.
+        
+        Args:
+            x: Input tensor (batch_size, channels, height, width)
+            
+        Returns:
+            Classification logits
+        """
+        # Extract features using backbone
+        x = self.backbone.features(x)
+        x = self.backbone.avgpool(x)
+        x = torch.flatten(x, 1)
+        
+        # Apply classifier
+        x = self.classifier(x)
+        
+        return x
+    
+    def unfreeze_backbone(self, unfreeze_all: bool = False):
+        """
+        Unfreeze backbone layers for fine-tuning.
+        
+        Args:
+            unfreeze_all: If True, unfreeze all layers. If False, only unfreeze later layers.
+        """
+        if unfreeze_all:
+            # Unfreeze all feature layers
+            for param in self.backbone.features.parameters():
+                param.requires_grad = True
+        else:
+            # Only unfreeze last 2 conv layers (more task-specific)
+            for param in self.backbone.features[3:].parameters():
+                param.requires_grad = True
+    
+    def get_optimizer(self, lr: float = 1e-3, weight_decay: float = 1e-4, 
+                     optimizer_type: str = 'adam'):
+        """
+        Create optimizer based on configuration.
+        
+        Args:
+            lr: Learning rate
+            weight_decay: Weight decay (L2 regularization)
+            optimizer_type: Type of optimizer ('sgd', 'adam', 'adamw')
+            
+        Returns:
+            PyTorch optimizer
+        """
+        # Separate parameters for backbone and classifier
+        backbone_params = []
+        classifier_params = []
+        
+        for name, param in self.named_parameters():
+            if param.requires_grad:
+                if 'backbone' in name:
+                    backbone_params.append(param)
+                else:
+                    classifier_params.append(param)
+        
+        # Different learning rates for backbone and classifier
+        param_groups = [
+            {'params': classifier_params, 'lr': lr},
+        ]
+        
+        if backbone_params:
+            # Use lower learning rate for backbone
+            param_groups.append({'params': backbone_params, 'lr': lr * 0.1})
+        
+        # Create optimizer
+        if optimizer_type.lower() == 'sgd':
+            optimizer = torch.optim.SGD(
+                param_groups, 
+                momentum=0.9, 
+                weight_decay=weight_decay
+            )
+        elif optimizer_type.lower() == 'adamw':
+            optimizer = torch.optim.AdamW(
+                param_groups, 
+                weight_decay=weight_decay
+            )
+        else:  # Default to Adam
+            optimizer = torch.optim.Adam(
+                param_groups, 
+                weight_decay=weight_decay
+            )
+        
+        return optimizer
+    
+    def save(self, save_path: str):
+        """
+        Save the model state dict and configuration.
+        
+        Args:
+            save_path: Path to save the model
+        """
+        checkpoint = {
+            'model_state_dict': self.state_dict(),
+            'config': self.config,
+            'architecture': 'AlexNetClassifier'
+        }
+        torch.save(checkpoint, save_path)
+    
+    @classmethod
+    def load(cls, load_path: str, map_location=None):
+        """
+        Load a saved model.
+        
+        Args:
+            load_path: Path to saved model
+            map_location: Device mapping for loading
+            
+        Returns:
+            Loaded model instance
+        """
+        checkpoint = torch.load(load_path, map_location=map_location)
+        
+        # Create new instance with saved config
+        model = cls(checkpoint['config'])
+        
+        # Load state dict
+        model.load_state_dict(checkpoint['model_state_dict'])
+        
+        return model
+
+
+class GoogLeNetClassifier(nn.Module):
+    """
+    GoogLeNet (Inception v1) classifier with configurable parameters.
+    
+    This class wraps the GoogLeNet model and allows for different configurations.
+    Includes auxiliary classifiers for better gradient flow during training.
+    
+    Architecture:
+    - Inception modules with parallel convolutions
+    - Auxiliary classifiers at intermediate layers
+    - Global average pooling before final classification
+    """
+    
+    def __init__(self, config: Dict[str, Any]):
+        """
+        Initialize GoogLeNet classifier with configuration.
+        
+        Args:
+            config: Dictionary with model configuration parameters
+                - num_classes: Number of output classes (default 5)
+                - dropout_rate: Dropout rate in classifier (default 0.5)
+                - pretrained: Whether to use pretrained ImageNet weights (default True)
+                - freeze_backbone: Whether to freeze backbone initially (default True)
+                - use_auxiliary: Whether to use auxiliary classifiers during training (default True)
+        """
+        super(GoogLeNetClassifier, self).__init__()
+        
+        # Store configuration
+        self.config = config
+        self.num_classes = config.get('num_classes', 5)
+        self.dropout_rate = config.get('dropout_rate', 0.5)
+        self.pretrained = config.get('pretrained', True)
+        self.freeze_backbone = config.get('freeze_backbone', True)
+        self.use_auxiliary = config.get('use_auxiliary', True)
+        
+        # Load pretrained GoogLeNet
+        if self.pretrained:
+            self.backbone = models.googlenet(weights=models.GoogLeNet_Weights.IMAGENET1K_V1)
+        else:
+            self.backbone = models.googlenet(weights=None)
+        
+        # Freeze backbone if specified
+        if self.freeze_backbone:
+            for param in self.backbone.parameters():
+                param.requires_grad = False
+        
+        # Replace main classifier
+        # Original: 1024 -> 1000
+        # New: 1024 -> 512 -> num_classes
+        self.classifier = nn.Sequential(
+            nn.Dropout(self.dropout_rate),
+            nn.Linear(1024, 512),
+            nn.ReLU(inplace=True),
+            nn.Dropout(self.dropout_rate),
+            nn.Linear(512, self.num_classes)
+        )
+        
+        # Replace auxiliary classifiers if present
+        if hasattr(self.backbone, 'aux1') and self.use_auxiliary:
+            self.backbone.aux1 = nn.Sequential(
+                nn.Conv2d(512, 128, kernel_size=1),
+                nn.ReLU(inplace=True),
+                nn.AdaptiveAvgPool2d((4, 4)),
+                nn.Flatten(),
+                nn.Linear(128 * 4 * 4, 768),
+                nn.ReLU(inplace=True),
+                nn.Dropout(0.5),
+                nn.Linear(768, self.num_classes)
+            )
+        
+        if hasattr(self.backbone, 'aux2') and self.use_auxiliary:
+            self.backbone.aux2 = nn.Sequential(
+                nn.Conv2d(528, 128, kernel_size=1),
+                nn.ReLU(inplace=True),
+                nn.AdaptiveAvgPool2d((4, 4)),
+                nn.Flatten(),
+                nn.Linear(128 * 4 * 4, 768),
+                nn.ReLU(inplace=True),
+                nn.Dropout(0.5),
+                nn.Linear(768, self.num_classes)
+            )
+    
+    def forward(self, x):
+        """
+        Forward pass through the model.
+        
+        Args:
+            x: Input tensor (batch_size, channels, height, width)
+            
+        Returns:
+            Classification logits (or tuple with auxiliary outputs during training)
+        """
+        # Use GoogLeNet's forward which handles inception modules
+        # The backbone.forward returns either single output or (output, aux1, aux2)
+        out = self.backbone(x)
+        
+        # If auxiliary outputs are returned during training
+        if isinstance(out, tuple):
+            main_out, aux1_out, aux2_out = out
+            # Replace main classifier output
+            main_logits = self.classifier(main_out)
+            return main_logits, aux1_out, aux2_out
+        else:
+            # During inference, only main output
+            main_logits = self.classifier(out)
+            return main_logits
+    
+    def unfreeze_backbone(self, unfreeze_all: bool = False):
+        """
+        Unfreeze backbone layers for fine-tuning.
+        
+        Args:
+            unfreeze_all: If True, unfreeze all layers. If False, only unfreeze later layers.
+        """
+        if unfreeze_all:
+            # Unfreeze all layers
+            for param in self.backbone.parameters():
+                param.requires_grad = True
+        else:
+            # Unfreeze inception modules from later stages
+            # GoogLeNet has mixed attributes, so we unfreeze most except very early layers
+            for name, param in self.backbone.named_parameters():
+                # Skip freezing the first few inception layers
+                if not any(skip in name for skip in ['conv1', 'conv2', 'maxpool']):
+                    param.requires_grad = True
+    
+    def get_optimizer(self, lr: float = 1e-3, weight_decay: float = 1e-4, 
+                     optimizer_type: str = 'adam'):
+        """
+        Create optimizer based on configuration.
+        
+        Args:
+            lr: Learning rate
+            weight_decay: Weight decay (L2 regularization)
+            optimizer_type: Type of optimizer ('sgd', 'adam', 'adamw')
+            
+        Returns:
+            PyTorch optimizer
+        """
+        # Separate parameters for backbone and classifier
+        backbone_params = []
+        classifier_params = []
+        
+        for name, param in self.named_parameters():
+            if param.requires_grad:
+                if 'backbone' in name:
+                    backbone_params.append(param)
+                else:
+                    classifier_params.append(param)
+        
+        # Different learning rates for backbone and classifier
+        param_groups = [
+            {'params': classifier_params, 'lr': lr},
+        ]
+        
+        if backbone_params:
+            # Use lower learning rate for backbone
+            param_groups.append({'params': backbone_params, 'lr': lr * 0.1})
+        
+        # Create optimizer
+        if optimizer_type.lower() == 'sgd':
+            optimizer = torch.optim.SGD(
+                param_groups, 
+                momentum=0.9, 
+                weight_decay=weight_decay
+            )
+        elif optimizer_type.lower() == 'adamw':
+            optimizer = torch.optim.AdamW(
+                param_groups, 
+                weight_decay=weight_decay
+            )
+        else:  # Default to Adam
+            optimizer = torch.optim.Adam(
+                param_groups, 
+                weight_decay=weight_decay
+            )
+        
+        return optimizer
+    
+    def save(self, save_path: str):
+        """
+        Save the model state dict and configuration.
+        
+        Args:
+            save_path: Path to save the model
+        """
+        checkpoint = {
+            'model_state_dict': self.state_dict(),
+            'config': self.config,
+            'architecture': 'GoogLeNetClassifier'
+        }
+        torch.save(checkpoint, save_path)
+    
+    @classmethod
+    def load(cls, load_path: str, map_location=None):
+        """
+        Load a saved model.
+        
+        Args:
+            load_path: Path to saved model
+            map_location: Device mapping for loading
+            
+        Returns:
+            Loaded model instance
+        """
+        checkpoint = torch.load(load_path, map_location=map_location)
+        
+        # Create new instance with saved config
+        model = cls(checkpoint['config'])
+        
+        # Load state dict
+        model.load_state_dict(checkpoint['model_state_dict'])
+        
+        return model
+
+
+def create_classification_model(config: Dict[str, Any], architecture: str = 'resnet50'):
     """
     Factory function to create classification model instance.
     
     Args:
         config: Model configuration dictionary
+        architecture: Model architecture ('resnet50', 'alexnet', 'googlenet')
         
     Returns:
-        ResNet50Classifier instance
+        Classifier instance
     """
-    return ResNet50Classifier(config)
+    if architecture.lower() == 'alexnet':
+        return AlexNetClassifier(config)
+    elif architecture.lower() == 'googlenet':
+        return GoogLeNetClassifier(config)
+    else:  # Default to ResNet50
+        return ResNet50Classifier(config)
 
 
 # Example configurations for different experiment variants
@@ -266,4 +670,21 @@ MODIFIED_V2_CLASSIFICATION_CONFIG = {
     'freeze_backbone': False,  # No freezing
     'additional_fc_layers': False,
     'use_batch_norm': True
+}
+
+# AlexNet specific configurations
+ALEXNET_BASELINE_CONFIG = {
+    'num_classes': 5,
+    'dropout_rate': 0.5,
+    'pretrained': True,
+    'freeze_backbone': True
+}
+
+# GoogLeNet specific configurations
+GOOGLENET_BASELINE_CONFIG = {
+    'num_classes': 5,
+    'dropout_rate': 0.5,
+    'pretrained': True,
+    'freeze_backbone': True,
+    'use_auxiliary': True
 }

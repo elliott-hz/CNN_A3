@@ -332,7 +332,19 @@ class ClassificationTrainer:
                 # Autocast for forward pass and loss calculation
                 with torch.cuda.amp.autocast():
                     outputs = model(inputs)
-                    loss = criterion(outputs, targets)
+                    
+                    # Handle GoogLeNet auxiliary classifiers
+                    if isinstance(outputs, tuple):
+                        main_out, aux1_out, aux2_out = outputs
+                        # Main loss + auxiliary losses (weighted)
+                        main_loss = criterion(main_out, targets)
+                        aux1_loss = criterion(aux1_out, targets)
+                        aux2_loss = criterion(aux2_out, targets)
+                        # GoogLeNet uses 0.3 weight for auxiliary losses
+                        loss = main_loss + 0.3 * (aux1_loss + aux2_loss)
+                    else:
+                        loss = criterion(outputs, targets)
+                    
                     loss = loss / self.grad_accum_steps
                 
                 # Backward pass with scaled loss
@@ -345,7 +357,17 @@ class ClassificationTrainer:
                     optimizer.zero_grad()
             else:
                 outputs = model(inputs)
-                loss = criterion(outputs, targets)
+                
+                # Handle GoogLeNet auxiliary classifiers
+                if isinstance(outputs, tuple):
+                    main_out, aux1_out, aux2_out = outputs
+                    main_loss = criterion(main_out, targets)
+                    aux1_loss = criterion(aux1_out, targets)
+                    aux2_loss = criterion(aux2_out, targets)
+                    loss = main_loss + 0.3 * (aux1_loss + aux2_loss)
+                else:
+                    loss = criterion(outputs, targets)
+                
                 loss = loss / self.grad_accum_steps
                 loss.backward()
                 
@@ -353,9 +375,14 @@ class ClassificationTrainer:
                     optimizer.step()
                     optimizer.zero_grad()
             
-            # Statistics
+            # Statistics - use main output for accuracy calculation
+            if isinstance(outputs, tuple):
+                main_out = outputs[0]
+            else:
+                main_out = outputs
+            
             running_loss += loss.item() * self.grad_accum_steps
-            _, predicted = outputs.max(1)
+            _, predicted = main_out.max(1)
             total += targets.size(0)
             correct += predicted.eq(targets).sum().item()
             
@@ -396,13 +423,27 @@ class ClassificationTrainer:
                     # Autocast for validation forward pass and loss calculation
                     with torch.cuda.amp.autocast():
                         outputs = model(inputs)
-                        loss = criterion(outputs, targets)
+                        
+                        # During validation, only use main output
+                        if isinstance(outputs, tuple):
+                            main_out = outputs[0]
+                        else:
+                            main_out = outputs
+                        
+                        loss = criterion(main_out, targets)
                 else:
                     outputs = model(inputs)
-                    loss = criterion(outputs, targets)
+                    
+                    # During validation, only use main output
+                    if isinstance(outputs, tuple):
+                        main_out = outputs[0]
+                    else:
+                        main_out = outputs
+                    
+                    loss = criterion(main_out, targets)
                 
                 running_loss += loss.item()
-                _, predicted = outputs.max(1)
+                _, predicted = main_out.max(1)
                 total += targets.size(0)
                 correct += predicted.eq(targets).sum().item()
         

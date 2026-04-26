@@ -2,7 +2,7 @@
 
 This repository contains a complete solution for visual dog emotion recognition using a two-stage deep learning pipeline:
 1. **Dog face detection** using YOLOv8
-2. **Emotion classification** using ResNet50
+2. **Emotion classification** using multiple CNN architectures (ResNet50, AlexNet, GoogLeNet)
 3. **Web Application** with React + FastAPI for real-time inference
 
 ---
