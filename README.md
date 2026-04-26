@@ -98,9 +98,9 @@ CNN_A3/
 │   ├── inference/               # Inference pipeline
 │   └── utils/                   # Helper functions
 │
-├── experiments/                 # 8 experiment scripts
-│   ├── exp01_detection_*.py     # YOLOv8 detection variants
-│   ├── exp04_classification_*.py # ResNet50 classification variants
+├── experiments/                 # 6 experiment scripts
+│   ├── exp01_detection_*.py     # YOLOv8 detection variants (3)
+│   ├── exp04_classification_ResNet50_baseline.py # ResNet50 baseline
 │   ├── exp05_classification_AlexNet.py
 │   └── exp06_classification_GoogLeNet.py
 │
@@ -236,11 +236,11 @@ chmod +x start_web_app.sh
 
 | Experiment | Architecture | Parameters | Era | Key Feature |
 |------------|--------------|------------|-----|-------------|
-| Exp04-Baseline | ResNet50 | ~25.6M | 2015 | Skip connections |
-| Exp04-V1 | ResNet50+FC | ~25.6M+ | 2015 | Additional FC layers |
-| Exp04-V2 | ResNet50-Full | ~25.6M | 2015 | Full fine-tuning |
-| Exp05 | AlexNet | ~60M | 2012 | Classic architecture |
-| Exp06 | GoogLeNet | ~7M | 2014 | Most efficient |
+| Exp04: ResNet50 | ResNet50 | ~25.6M | 2015 | Modern residual network (configurable) |
+| Exp05: AlexNet | AlexNet | ~60M | 2012 | Classic CNN architecture |
+| Exp06: GoogLeNet | GoogLeNet | ~7M | 2014 | Efficient inception modules |
+
+**Note**: ResNet50 baseline can be configured with different parameters for various training strategies. See [MODEL_TRAINING.md](MODEL_TRAINING.md) for detailed comparison.
 
 ---
 

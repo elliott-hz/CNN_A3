@@ -20,25 +20,171 @@ The project includes **8 experiments** divided into two categories:
 
 ### Detection Experiments (Exp01)
 
-All three detection experiments use YOLOv8 with different configurations to compare model size vs performance trade-offs.
+The detection experiment uses YOLOv8 with a balanced configuration.
 
 | Experiment | Script | Backbone | Input Size | Key Feature |
 |------------|--------|----------|------------|-------------|
 | Baseline | `exp01_detection_YOLOv8_baseline.py` | Medium (m) | 640px | Balanced config |
-| V1 | `exp01_detection_YOLOv8_v1.py` | Large (l) | 1280px | High resolution |
-| V2 | `exp01_detection_YOLOv8_v2.py` | Small (s) | 640px | Lightweight |
 
 ### Classification Experiments (Exp04-06)
 
-Five classification experiments comparing different CNN architectures and training strategies.
+Three classification experiments comparing different CNN architectures and training strategies.
 
-| Experiment | Script | Architecture | Parameters | Era |
-|------------|--------|--------------|------------|-----|
-| ResNet50-Baseline | `exp04_classification_ResNet50_baseline.py` | ResNet50 | ~25.6M | 2015 |
-| ResNet50-V1 | `exp04_classification_ResNet50_v1.py` | ResNet50+FC | ~25.6M+ | 2015 |
-| ResNet50-V2 | `exp04_classification_ResNet50_v2.py` | ResNet50-Full | ~25.6M | 2015 |
-| AlexNet | `exp05_classification_AlexNet.py` | AlexNet | ~60M | 2012 |
-| GoogLeNet | `exp06_classification_GoogLeNet.py` | GoogLeNet | ~7M | 2014 |
+| Experiment | Script | Architecture | Parameters | Era | Key Feature |
+|------------|--------|--------------|------------|-----|-------------|
+| Exp04: ResNet50 | `exp04_classification_ResNet50_baseline.py` | ResNet50 | ~25.6M | 2015 | Modern residual network with skip connections |
+| Exp05: AlexNet | `exp05_classification_AlexNet.py` | AlexNet | ~60M | 2012 | Classic CNN with large FC layers |
+| Exp06: GoogLeNet | `exp06_classification_GoogLeNet.py` | GoogLeNet | ~7M | 2014 | Efficient inception modules with auxiliary classifiers |
+
+**Note**: The ResNet50 baseline experiment can be configured with different parameters (dropout rate, freeze strategy, optimizer, etc.) to explore various training approaches. See the configuration details below for recommended settings.
+
+---
+
+## 📊 Detailed Comparison of Classification Experiments
+
+The following table provides a comprehensive side-by-side comparison of all 3 classification experiments, highlighting key differences in model architecture, training configuration, and optimization strategies.
+
+### Complete Experiment Configuration Matrix
+
+| **Configuration** | **Exp04: ResNet50** | **Exp05: AlexNet** | **Exp06: GoogLeNet** |
+|-------------------|---------------------|--------------------|----------------------|
+| **Model Architecture** | ResNet50 | AlexNet | GoogLeNet/Inception v1 |
+| **Architecture Era** | 2015 (Modern) | 2012 (Classic) | 2014 (Efficient) |
+| **Parameter Count** | ~25.6M | ~60M | ~7M |
+| **Key Architectural Feature** | Skip connections | Large FC layers (4096 units) | Inception modules + Auxiliary classifiers |
+| **Pretrained Weights** | ✅ ImageNet | ✅ ImageNet | ✅ ImageNet |
+| **Freeze Backbone** | ✅ True | ✅ True | ✅ True |
+| **Additional FC Layers** | ❌ False | N/A (3 FC built-in) | N/A (GAP instead) |
+| **Auxiliary Classifiers** | N/A | N/A | ✅ Enabled (weight=0.3) |
+| **Dropout Rate** | 0.5 | 0.5 | 0.5 |
+| **Batch Normalization** | ✅ Yes | N/A | N/A |
+| **Training Epochs** | 120 | 200 (Longer) | 120 |
+| **Optimizer** | Adam | SGD + Momentum | Adam |
+| **Learning Rate** | 0.0005 | 0.01 (High) | 0.001 |
+| **Batch Size** | 32 | 64 (Larger) | 32 |
+| **Weight Decay** | 5e-4 | 5e-4 (Stronger) | 1e-4 |
+| **Gradient Accumulation** | 1 | 1 | 1 |
+| **Label Smoothing** | 0.1 | 0.1 | 0.1 |
+| **Class Weighting** | ✅ Yes | ✅ Yes | ✅ Yes |
+| **Mixed Precision (AMP)** | ✅ Yes | ✅ Yes | ✅ Yes |
+| **Early Stopping Patience** | 15 | 30 (Longer) | 15 |
+| **LR Scheduler** | ReduceLROnPlateau | StepLR (decay=0.5, interval=40) | None specified |
+| **Training Strategy** | Transfer learning (frozen) | Classic SGD approach | Multi-loss with auxiliary |
+| **Best For** | Establishing strong baseline | Comparing classic vs modern | Efficiency-focused applications |
+| **Memory Requirements** | Medium | High (large FC layers) | Low (most efficient) |
+| **Expected Training Speed** | Fast | Slow (SGD, large batch) | Fast (lightweight) |
+| **Expected Inference Speed** | Fast | Moderate | Very Fast |
+| **Risk of Overfitting** | Low | Low (strong regularization) | Low (efficient design) |
+
+### Key Design Decisions Explained
+
+#### Exp04: ResNet50 (Modern Architecture with Transfer Learning)
+
+**Design Philosophy:**
+- Use modern residual network with skip connections to prevent vanishing gradients
+- Freeze backbone to leverage pretrained ImageNet features (transfer learning)
+- Train only classifier head with moderate learning rate for stable convergence
+- Balanced dropout (0.5) and weight decay (5e-4) for regularization
+- Adam optimizer for adaptive learning rates
+- ReduceLROnPlateau scheduler to automatically adjust LR based on validation performance
+
+**Configuration Flexibility:**
+The ResNet50 baseline can be easily modified by adjusting these parameters in the experiment script:
+- **Dropout rate**: Try 0.3-0.7 depending on overfitting observed
+- **Freeze strategy**: Set `freeze_backbone=False` for full fine-tuning on domain-specific data
+- **Learning rate**: Use lower LR (0.0001) if unfreezing backbone
+- **Optimizer**: Switch to SGD with momentum for traditional training approach
+- **Batch size**: Adjust based on available GPU memory (16-64 range)
+
+**When to Modify:**
+- If validation accuracy plateaus early → try unfreezing backbone with lower LR
+- If overfitting occurs → increase dropout or add more augmentation
+- If underfitting → decrease dropout, train longer, or unfreeze more layers
+
+#### Exp04: ResNet50 (Modern Architecture with Transfer Learning)
+
+**Design Philosophy:**
+- Use modern residual network with skip connections to prevent vanishing gradients
+- Freeze backbone to leverage pretrained ImageNet features (transfer learning)
+- Train only classifier head with moderate learning rate for stable convergence
+- Balanced dropout (0.5) and weight decay (5e-4) for regularization
+- Adam optimizer for adaptive learning rates
+- ReduceLROnPlateau scheduler to automatically adjust LR based on validation performance
+
+**Configuration Flexibility:**
+The ResNet50 baseline can be easily modified by adjusting these parameters in the experiment script:
+- **Dropout rate**: Try 0.3-0.7 depending on overfitting observed
+- **Freeze strategy**: Set `freeze_backbone=False` for full fine-tuning on domain-specific data
+- **Learning rate**: Use lower LR (0.0001) if unfreezing backbone
+- **Optimizer**: Switch to SGD with momentum for traditional training approach
+- **Batch size**: Adjust based on available GPU memory (16-64 range)
+
+**When to Modify:**
+- If validation accuracy plateaus early → try unfreezing backbone with lower LR
+- If overfitting occurs → increase dropout or add more augmentation
+- If underfitting → decrease dropout, train longer, or unfreeze more layers
+
+#### Exp05: AlexNet (Classic Architecture)
+
+**Design Philosophy:**
+- Test historical architecture against modern alternatives
+- Use traditional SGD with momentum (as in original paper)
+- Higher initial LR (0.01) typical for SGD training
+- Larger batch size (64) possible due to simpler conv layers
+- Stronger weight decay (5e-4) to regularize large FC layers
+- Extended training (200 epochs) with step decay schedule
+- Longer early stopping patience (30) to avoid premature termination
+
+**Trade-offs:**
+- ✅ Simple, well-understood architecture
+- ❌ Large parameter count (~60M) due to dense FC layers
+- ❌ No skip connections or batch normalization
+- ❌ Slower inference compared to modern architectures
+
+#### Exp06: GoogLeNet (Efficiency-Focused)
+
+**Design Philosophy:**
+- Maximize accuracy-to-parameter ratio
+- Leverage Inception modules for multi-scale feature extraction
+- Enable auxiliary classifiers for better gradient flow during training
+- Use Adam optimizer (works well with complex architectures)
+- Global average pooling eliminates massive FC layers
+- Most parameter-efficient design (~7M vs ~25M for ResNet50)
+
+**Unique Features:**
+- Multi-loss training: main loss + 2× auxiliary losses (weight=0.3 each)
+- Parallel convolutions (1×1, 3×3, 5×5) capture diverse patterns
+- Dimensionality reduction via 1×1 convolutions before expensive operations
+- Best choice for resource-constrained deployment scenarios
+
+### When to Use Each Experiment
+
+| **Scenario** | **Recommended Experiment** | **Rationale** |
+|--------------|---------------------------|---------------|
+| Quick baseline establishment | Exp04 ResNet50 | Proven modern architecture, balanced config |
+| Need maximum accuracy | Exp04 ResNet50 (with fine-tuning) | Unfreeze backbone for domain adaptation |
+| Limited GPU memory | Exp06 GoogLeNet | Only 7M parameters, very efficient |
+| Fast inference required | Exp06 GoogLeNet | Lightweight, no heavy FC layers |
+| Comparing old vs new architectures | Exp05 AlexNet | Historical reference point from 2012 |
+| Domain shift present | Exp04 ResNet50 (unfrozen) | Full fine-tuning adapts better to new domain |
+| Production deployment | Exp06 GoogLeNet | Best speed/accuracy/memory trade-off |
+| Research/academic study | All 3 experiments | Comprehensive comparison across eras |
+| Educational purposes | Start with Exp04, then Exp05, then Exp06 | Learn evolution of CNN architectures |
+
+### Performance Expectations Summary
+
+Based on architectural characteristics:
+
+| **Metric** | **Likely Ranking (Best → Worst)** |
+|------------|----------------------------------|
+| **Accuracy** | Exp04 ResNet50 > Exp06 GoogLeNet > Exp05 AlexNet |
+| **Training Speed** | Exp06 > Exp04 > Exp05 |
+| **Inference Speed** | Exp06 > Exp04 > Exp05 |
+| **Memory Efficiency** | Exp06 >> Exp04 > Exp05 |
+| **Convergence Stability** | Exp04 > Exp06 > Exp05 |
+| **Parameter Efficiency** | Exp06 (7M) >> Exp04 (25.6M) > Exp05 (60M) |
+
+**Note**: Actual performance may vary based on dataset characteristics, training duration, and hyperparameter tuning. The ResNet50 model can achieve higher accuracy with full fine-tuning but requires more careful hyperparameter selection.
 
 ---
 
@@ -181,57 +327,6 @@ training_config = {
 **Purpose**: Establish baseline performance for dog face detection  
 **Expected**: Balanced speed and accuracy
 
-#### Exp01: Detection Modified V1
-
-**Script**: [`experiments/exp01_detection_YOLOv8_v1.py`](experiments/exp01_detection_YOLOv8_v1.py)
-
-**Configuration:**
-```python
-model_config = {
-    'backbone': 'l',              # Large backbone
-    'input_size': 1280,           # High resolution
-    'confidence_threshold': 0.6,  # Higher confidence
-    'nms_iou_threshold': 0.5,
-}
-
-training_config = {
-    'epochs': 120,
-    'optimizer': 'AdamW',
-    'learning_rate': 0.0005,      # Lower LR for stability
-    'batch_size': 4,              # Smaller batch (GPU memory)
-    'use_amp': True,
-}
-```
-
-**Purpose**: Test larger model with higher resolution input  
-**Expected**: Higher accuracy but slower inference, more GPU memory
-
-#### Exp01: Detection Modified V2
-
-**Script**: [`experiments/exp01_detection_YOLOv8_v2.py`](experiments/exp01_detection_YOLOv8_v2.py)
-
-**Configuration:**
-```python
-model_config = {
-    'backbone': 's',              # Small backbone
-    'input_size': 640,            # Standard resolution
-    'confidence_threshold': 0.4,  # Lower confidence (more detections)
-    'nms_iou_threshold': 0.6,
-}
-
-training_config = {
-    'epochs': 120,
-    'optimizer': 'SGD',
-    'learning_rate': 0.002,       # Higher LR for SGD
-    'batch_size': 32,             # Larger batch
-    'momentum': 0.9,
-    'weight_decay': 1e-4,
-}
-```
-
-**Purpose**: Test smaller model for faster inference  
-**Expected**: Faster inference, lower accuracy, less GPU memory
-
 ### Classification Experiments
 
 All classification experiments use the **same dataset and preprocessing pipeline** for fair comparison:
@@ -267,58 +362,11 @@ training_config = {
 
 **Purpose**: Establish strong baseline with modern architecture
 
-#### Exp04: ResNet50 Modified V1
-
-**Script**: [`experiments/exp04_classification_ResNet50_v1.py`](experiments/exp04_classification_ResNet50_v1.py)
-
-**Configuration:**
-```python
-model_config = {
-    'dropout_rate': 0.7,          # Higher dropout
-    'additional_fc_layers': True, # Extra FC layers
-    'freeze_backbone': True,
-    'pretrained': True,
-}
-
-training_config = {
-    'epochs': 120,
-    'learning_rate': 0.0005,
-    'optimizer': 'AdamW',         # AdamW optimizer
-    'weight_decay': 1e-4,
-    'batch_size': 16,             # Smaller batch
-    'use_amp': True,
-    'early_stopping_patience': 15,
-}
-```
-
-**Purpose**: Test impact of additional layers on classification performance
-
-#### Exp04: ResNet50 Modified V2
-
-**Script**: [`experiments/exp04_classification_ResNet50_v2.py`](experiments/exp04_classification_ResNet50_v2.py)
-
-**Configuration:**
-```python
-model_config = {
-    'dropout_rate': 0.3,          # Lower dropout
-    'additional_fc_layers': False,
-    'freeze_backbone': False,     # Full fine-tuning
-    'pretrained': True,
-}
-
-training_config = {
-    'epochs': 120,
-    'learning_rate': 0.0001,      # Lower LR for fine-tuning
-    'optimizer': 'SGD',
-    'momentum': 0.9,
-    'weight_decay': 1e-4,
-    'batch_size': 32,
-    'use_amp': True,
-    'early_stopping_patience': 20,
-}
-```
-
-**Purpose**: Test full fine-tuning vs transfer learning approach
+**Configuration Flexibility**: This experiment can be easily modified to explore different training strategies:
+- **Full fine-tuning**: Set `freeze_backbone=False` and use lower learning rate (0.0001) with SGD optimizer
+- **Increased capacity**: Add extra FC layers by setting `additional_fc_layers=True` and increase dropout to 0.7
+- **Different optimizers**: Try AdamW for better weight decay handling, or SGD with momentum for traditional approach
+- **Extended training**: Increase epochs to 200+ if validation metrics haven't plateaued
 
 #### Exp05: AlexNet
 
@@ -537,7 +585,7 @@ outputs/
 │       └── ... (same structure)
 │
 ├── exp04_classification_ResNet50_baseline/
-│   └── run_TIMESTAMP/
+│   └── run_timestamp/
 │       ├── model/
 │       ├── logs/
 │       └── figures/
