@@ -327,8 +327,10 @@ class TorchvisionDetectionTrainer:
                         # SSD style: could be list of dicts or list of tensors
                         if len(loss_output) > 0 and isinstance(loss_output[0], dict):
                             # List of dicts - sum scalar values to avoid dimension mismatch
+                            # Use .mean() for multi-element tensors to reduce to scalar
                             losses = sum(
-                                sum(v.item() if hasattr(v, 'item') else v for v in d.values()) 
+                                sum(v.mean() if v.numel() > 1 else v.item() if hasattr(v, 'item') else v 
+                                    for v in d.values()) 
                                 for d in loss_output
                             )
                             losses = torch.tensor(losses, device=self.device)
@@ -360,8 +362,10 @@ class TorchvisionDetectionTrainer:
                     # SSD style
                     if len(loss_output) > 0 and isinstance(loss_output[0], dict):
                         # List of dicts - sum scalar values to avoid dimension mismatch
+                        # Use .mean() for multi-element tensors to reduce to scalar
                         losses = sum(
-                            sum(v.item() if hasattr(v, 'item') else v for v in d.values()) 
+                            sum(v.mean() if v.numel() > 1 else v.item() if hasattr(v, 'item') else v 
+                                for v in d.values()) 
                             for d in loss_output
                         )
                         losses = torch.tensor(losses, device=self.device)
@@ -387,43 +391,25 @@ class TorchvisionDetectionTrainer:
         return {'loss': avg_loss}
     
     def _validate(self, model, val_loader):
-        """Validate model."""
+        """Validate model.
+        
+        Note: Torchvision detection models do NOT return losses in eval mode.
+        They only return predictions (boxes, scores, labels).
+        We run forward pass to check for errors, but don't compute validation loss.
+        """
         model.eval()
-        total_loss = 0
-        num_batches = 0
         
         with torch.no_grad():
             for images, targets in tqdm(val_loader, desc="Validation"):
                 images = [img.to(self.device) for img in images]
                 targets = [{k: v.to(self.device) for k, v in t.items()} for t in targets]
                 
-                loss_output = model(images, targets)
-                
-                # Handle different return types from different models
-                if isinstance(loss_output, dict):
-                    # Faster R-CNN style
-                    losses = sum(loss for loss in loss_output.values())
-                elif isinstance(loss_output, (list, tuple)):
-                    # SSD style
-                    if len(loss_output) > 0 and isinstance(loss_output[0], dict):
-                        # List of dicts - sum scalar values
-                        losses = sum(
-                            sum(v.item() if hasattr(v, 'item') else v for v in d.values()) 
-                            for d in loss_output
-                        )
-                        losses = torch.tensor(losses, device=self.device)
-                    else:
-                        # List of tensors
-                        losses = sum(loss_output)
-                else:
-                    # Single tensor
-                    losses = loss_output
-                
-                total_loss += losses.item()
-                num_batches += 1
+                # Run forward pass in eval mode (returns predictions, not losses)
+                # We just verify the model can process validation data without errors
+                _ = model(images, targets)
         
-        avg_loss = total_loss / num_batches if num_batches > 0 else 0
-        return {'loss': avg_loss}
+        # Return dummy loss since torchvision models don't provide val loss in eval mode
+        return {'loss': 0.0}
 
     def _log_training_history(self, log_dir: Path):
         """Save training history to CSV."""
