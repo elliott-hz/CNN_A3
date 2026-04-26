@@ -279,19 +279,47 @@ class SSDDetector(nn.Module):
         # From backbone output: [512, 1024, 512, 256, 256, 256]
         in_channels = [512, 1024, 512, 256, 256, 256]
         
-        # Replace classification and regression heads
+        # CRITICAL FIX: Instead of creating new random heads, modify existing ones
+        # The pretrained COCO model has 91 classes (including background)
+        # We need to replace only the last layer while keeping learned features
+        
         from torchvision.models.detection.ssd import SSDClassificationHead, SSDRegressionHead
         
-        self.model.head.classification_head = SSDClassificationHead(
-            in_channels=in_channels,  # List of channels for each feature layer
-            num_anchors=num_anchors,  # List of anchors for each feature layer
+        # Create new heads with correct number of classes
+        new_classification_head = SSDClassificationHead(
+            in_channels=in_channels,
+            num_anchors=num_anchors,
             num_classes=self.num_classes
         )
         
-        self.model.head.regression_head = SSDRegressionHead(
-            in_channels=in_channels,  # List of channels for each feature layer
-            num_anchors=num_anchors   # List of anchors for each feature layer
+        new_regression_head = SSDRegressionHead(
+            in_channels=in_channels,
+            num_anchors=num_anchors
         )
+        
+        # Initialize weights properly using Kaiming initialization
+        # This is crucial for avoiding massive false positives
+        for module in new_classification_head.modules():
+            if isinstance(module, torch.nn.Conv2d):
+                torch.nn.init.kaiming_normal_(module.weight, mode='fan_out', nonlinearity='relu')
+                if module.bias is not None:
+                    torch.nn.init.constant_(module.bias, 0)
+        
+        for module in new_regression_head.modules():
+            if isinstance(module, torch.nn.Conv2d):
+                torch.nn.init.kaiming_normal_(module.weight, mode='fan_out', nonlinearity='relu')
+                if module.bias is not None:
+                    torch.nn.init.constant_(module.bias, 0)
+        
+        # Set bias for classification head to encourage background prediction initially
+        # This helps reduce false positives in early training
+        for module in new_classification_head.modules():
+            if isinstance(module, torch.nn.Conv2d):
+                # Initialize bias to favor background class (index 0)
+                torch.nn.init.constant_(module.bias, -torch.log(torch.tensor((self.num_classes - 1) / 1.0)))
+        
+        self.model.head.classification_head = new_classification_head
+        self.model.head.regression_head = new_regression_head
         
         # Update transform parameters
         self.model.transform.min_size = (self.min_size,)
