@@ -1,5 +1,5 @@
 """
-Experiment 02: Detection Model - Modified Version 1 (YOLOv8 Large)
+Experiment 01: Detection Model - Modified Version 1 (YOLOv8 Large)
 
 This experiment trains a modified YOLOv8 model with larger backbone and input size.
 Configuration: backbone='l', input_size=1280, confidence=0.6
@@ -42,10 +42,10 @@ def get_latest_run_dir(experiment_name):
 
 
 def main():
-    """Run Experiment 02: Detection Modified V1."""
+    """Run Experiment 01: Detection Modified V1."""
     
     # Parse command line arguments
-    parser = argparse.ArgumentParser(description='Run Experiment 02: Detection Modified V1')
+    parser = argparse.ArgumentParser(description='Run Experiment 01: Detection Modified V1')
     parser.add_argument('--resume', action='store_true',
                         help='Resume training from the latest checkpoint in the latest run directory')
     
@@ -55,7 +55,7 @@ def main():
     RESUME_TRAINING = args.resume
     
     # Setup
-    experiment_name = "exp02_detection_modified_v1"
+    experiment_name = "exp01_detection_YOLOv8_v1"
     
     # --- Key modification 1: Determine output_dir based on whether to resume ---
     if RESUME_TRAINING:

@@ -62,7 +62,7 @@ def main():
     RESUME_TRAINING = args.resume
     
     # Setup
-    experiment_name = "exp01_detection_baseline"
+    experiment_name = "exp01_detection_YOLOv8_baseline"
     
     # --- Key modification 1: Determine output_dir based on whether to resume ---
     if RESUME_TRAINING:

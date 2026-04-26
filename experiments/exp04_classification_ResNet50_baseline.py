@@ -69,7 +69,7 @@ def main():
                         help='Number of samples per class when using small subset (default: 50)')
     args = parser.parse_args()
     
-    experiment_name = "exp04_classification_baseline"
+    experiment_name = "exp04_classification_ResNet50_baseline"
     logger = setup_logger(experiment_name)
     
     logger.info("=" * 80)

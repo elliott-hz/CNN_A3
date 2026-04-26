@@ -1,5 +1,5 @@
 """
-Experiment 06: Classification Model - Modified Version 2 (ResNet50 No Freeze)
+Experiment 04: Classification Model - Modified Version 2 (ResNet50 No Freeze)
 
 This experiment trains a modified ResNet50 model without freezing backbone.
 Configuration: dropout=0.3, freeze_backbone=False, all layers trainable
@@ -59,17 +59,17 @@ def get_subset_data(X, y, subset_size_per_class=50, random_seed=42):
 
 
 def main():
-    """Run Experiment 06: Classification Modified V2."""
+    """Run Experiment 04: Classification Modified V2."""
     
     # Parse command line arguments
-    parser = argparse.ArgumentParser(description='Experiment 06: Classification Modified V2')
+    parser = argparse.ArgumentParser(description='Experiment 04: Classification Modified V2')
     parser.add_argument('--use_small_subset', '-s', action='store_true', 
                         help='Use a small subset of data for quick testing')
     parser.add_argument('--subset_size_per_class', type=int, default=50,
                         help='Number of samples per class when using small subset (default: 50)')
     args = parser.parse_args()
     
-    experiment_name = "exp06_classification_modified_v2"
+    experiment_name = "exp04_classification_ResNet50_v2"
     logger = setup_logger(experiment_name)
     
     logger.info("=" * 80)

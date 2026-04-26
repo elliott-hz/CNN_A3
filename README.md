@@ -150,22 +150,27 @@ CNN_A3/
 │       ├── file_utils.py              # File I/O helpers
 │       └── logger.py                  # Logging setup
 │
-├── experiments/                       # 6 Experiment scripts
+├── experiments/                       # 8 Experiment scripts
 │   ├── __init__.py
-│   ├── exp01_detection_baseline.py        # YOLOv8 baseline
-│   ├── exp02_detection_modified_v1.py     # YOLOv8 modified v1
-│   ├── exp03_detection_modified_v2.py     # YOLOv8 modified v2
-│   ├── exp04_classification_baseline.py   # ResNet50 baseline
-│   ├── exp05_classification_modified_v1.py # ResNet50 modified v1
-│   └── exp06_classification_modified_v2.py # ResNet50 modified v2
+│   ├── exp01_detection_YOLOv8_baseline.py        # YOLOv8 baseline
+│   ├── exp01_detection_YOLOv8_v1.py              # YOLOv8 modified v1
+│   ├── exp01_detection_YOLOv8_v2.py              # YOLOv8 modified v2
+│   ├── exp04_classification_ResNet50_baseline.py # ResNet50 baseline
+│   ├── exp04_classification_ResNet50_v1.py       # ResNet50 modified v1
+│   ├── exp04_classification_ResNet50_v2.py       # ResNet50 modified v2
+│   ├── exp05_classification_AlexNet.py           # AlexNet classifier
+│   └── exp06_classification_GoogLeNet.py         # GoogLeNet classifier
 │
 ├── outputs/                           # Experiment outputs (timestamped runs)
-│   ├── exp01_detection_baseline/
-│   ├── exp02_detection_modified_v1/
-│   ├── exp03_detection_modified_v2/
-│   ├── exp04_classification_baseline/
-│   ├── exp05_classification_modified_v1/
-│   └── exp06_classification_modified_v2/
+│   ├── exp01_detection_YOLOv8_baseline/
+│   ├── exp01_detection_YOLOv8_v1/
+│   ├── exp01_detection_YOLOv8_v2/
+│   ├── exp04_classification_ResNet50_baseline/
+│   ├── exp04_classification_ResNet50_v1/
+│   ├── exp04_classification_ResNet50_v2/
+│   ├── exp05_classification_AlexNet/
+│   └── exp06_classification_GoogLeNet/
+
 │
 ├── scripts/                           # Convenience scripts
 │   ├── inference_demo.sh              # Demo inference
@@ -362,14 +367,14 @@ bash scripts/run_data_preprocessing.sh
 ### Running Experiments
 ```bash
 # Detection baseline
-python experiments/exp01_detection_baseline.py
+python experiments/exp01_detection_YOLOv8_baseline.py
 
 # Classification baseline
-python experiments/exp04_classification_baseline.py
+python experiments/exp04_classification_ResNet50_baseline.py
 
 # With small subset for quick testing
-python experiments/exp01_detection_baseline.py --use-small-subset
-python experiments/exp04_classification_baseline.py --use_small_subset
+python experiments/exp01_detection_YOLOv8_baseline.py --use-small-subset
+python experiments/exp04_classification_ResNet50_baseline.py --use_small_subset
 ```
 
 ### Inference Demo
@@ -381,43 +386,68 @@ bash scripts/inference_demo.sh
 
 ## 7. Experiment Descriptions
 
-The project includes 6 experiments divided into two categories:
+The project includes 8 experiments divided into two categories:
 
-### 7.1 Detection Experiments (Exp01-03)
+### 7.1 Detection Experiments (Exp01)
 
-#### Exp01: Detection Baseline ([`exp01_detection_baseline.py`](experiments/exp01_detection_baseline.py))
+All three detection experiments use YOLOv8 with different configurations:
+
+#### Exp01: Detection Baseline ([`exp01_detection_YOLOv8_baseline.py`](experiments/exp01_detection_YOLOv8_baseline.py))
 - **Model**: YOLOv8 medium (m)
 - **Configuration**: backbone='m', input_size=640, confidence=0.5
 - **Purpose**: Establish baseline performance for dog face detection
 
-#### Exp02: Detection Modified V1 ([`exp02_detection_modified_v1.py`](experiments/exp02_detection_modified_v1.py))
+#### Exp01: Detection Modified V1 ([`exp01_detection_YOLOv8_v1.py`](experiments/exp01_detection_YOLOv8_v1.py))
 - **Model**: YOLOv8 large (l)
 - **Configuration**: backbone='l', input_size=1280, confidence=0.6
 - **Purpose**: Test larger model with higher resolution input
 
-#### Exp03: Detection Modified V2 ([`exp03_detection_modified_v2.py`](experiments/exp03_detection_modified_v2.py))
+#### Exp01: Detection Modified V2 ([`exp01_detection_YOLOv8_v2.py`](experiments/exp01_detection_YOLOv8_v2.py))
 - **Model**: YOLOv8 small (s)
 - **Configuration**: backbone='s', input_size=640, confidence=0.4
 - **Purpose**: Test smaller model for faster inference
 
 ### 7.2 Classification Experiments (Exp04-06) - **UPDATED v2.0**
 
-All three classification experiments use the **same dataset and preprocessing pipeline** for fair comparison:
+All classification experiments use the **same dataset and preprocessing pipeline** for fair comparison:
 - **Dataset**: Dog Emotion Dataset (~9,325 images, 5 classes)
 - **Preprocessing**: Images resized to 224×224, normalized to [0,1]
 - **Splits**: Train/Val/Test (70/20/10) with stratification
-- **Training**: 120 epochs, mixed precision (AMP), early stopping patience=15
+- **Training**: Mixed precision (AMP), early stopping patience=15
 
-#### Exp04: ResNet50 Baseline ([`exp04_classification_baseline.py`](experiments/exp04_classification_baseline.py))
+#### Exp04: ResNet50 Baseline ([`exp04_classification_ResNet50_baseline.py`](experiments/exp04_classification_ResNet50_baseline.py))
 - **Model**: ResNet50 with partial freezing
 - **Architecture**: 50-layer residual network with skip connections
 - **Parameters**: ~25.6M total
 - **Configuration**: 
   - dropout=0.5, pretrained=True, freeze_backbone=True
-  - Two-phase training: frozen (10 epochs) → fine-tune (110 epochs)
-  - LR: 0.0005 (frozen), 0.00005 (fine-tune)
+  - Training: 120 epochs
+  - LR: 0.0005
   - Optimizer: Adam, weight_decay=5e-4
 - **Purpose**: Establish strong baseline with modern architecture
+
+#### Exp04: ResNet50 Modified V1 ([`exp04_classification_ResNet50_v1.py`](experiments/exp04_classification_ResNet50_v1.py))
+- **Model**: ResNet50 with additional FC layers
+- **Architecture**: 50-layer residual network + extra fully connected layers
+- **Parameters**: ~25.6M+ total (additional FC layers)
+- **Configuration**: 
+  - dropout=0.7, additional_fc_layers=True, pretrained=True
+  - Training: 120 epochs
+  - LR: 0.0005
+  - Optimizer: AdamW, weight_decay=1e-4
+  - Batch size: 16
+- **Purpose**: Test impact of additional layers on classification performance
+
+#### Exp04: ResNet50 Modified V2 ([`exp04_classification_ResNet50_v2.py`](experiments/exp04_classification_ResNet50_v2.py))
+- **Model**: ResNet50 without backbone freezing
+- **Architecture**: 50-layer residual network, all layers trainable
+- **Parameters**: ~25.6M total (all trainable)
+- **Configuration**: 
+  - dropout=0.3, freeze_backbone=False, pretrained=True
+  - Training: 120 epochs
+  - LR: 0.0001 (lower for fine-tuning)
+  - Optimizer: SGD, weight_decay=1e-4
+- **Purpose**: Test full fine-tuning vs transfer learning approach
 
 #### Exp05: AlexNet ([`exp05_classification_AlexNet.py`](experiments/exp05_classification_AlexNet.py)) ✨ NEW
 - **Model**: AlexNet (classic CNN from 2012)
@@ -425,9 +455,9 @@ All three classification experiments use the **same dataset and preprocessing pi
 - **Parameters**: ~60M total (larger due to FC layers)
 - **Configuration**:
   - dropout=0.5, pretrained=True, freeze_backbone=True
-  - Two-phase training: frozen (10 epochs) → fine-tune (110 epochs)
-  - LR: 0.001 (frozen), 0.0001 (fine-tune)
-  - Optimizer: SGD with momentum=0.9, weight_decay=1e-4
+  - Training: 200 epochs
+  - LR: 0.01 (frozen phase), decays by 0.5 every 40 epochs
+  - Optimizer: SGD with momentum=0.9, weight_decay=5e-4
   - Batch size: 64 (larger due to lighter backbone)
 - **Purpose**: Compare classic architecture vs modern ResNet/GoogLeNet
 
@@ -437,9 +467,9 @@ All three classification experiments use the **same dataset and preprocessing pi
 - **Parameters**: ~7M total (most efficient!)
 - **Configuration**:
   - dropout=0.5, pretrained=True, freeze_backbone=True, use_auxiliary=True
-  - Two-phase training: frozen (10 epochs) → fine-tune (110 epochs)
+  - Training: 120 epochs
   - Auxiliary classifiers weighted at 0.3 each during training
-  - LR: 0.001 (frozen), 0.0001 (fine-tune)
+  - LR: 0.001
   - Optimizer: Adam, weight_decay=1e-4
   - Batch size: 32
 - **Purpose**: Test efficiency-focused architecture with multi-loss training
@@ -449,7 +479,9 @@ All three classification experiments use the **same dataset and preprocessing pi
 
 | Experiment | Model | Parameters | Architecture Era | Key Feature |
 |------------|-------|------------|------------------|-------------|
-| **Exp04** | ResNet50 | ~25.6M | 2015 (Modern) | Skip connections, deep network |
+| **Exp04-Baseline** | ResNet50 | ~25.6M | 2015 (Modern) | Skip connections, deep network |
+| **Exp04-V1** | ResNet50+FC | ~25.6M+ | 2015 (Modern) | Additional FC layers |
+| **Exp04-V2** | ResNet50-Full | ~25.6M | 2015 (Modern) | Full fine-tuning |
 | **Exp05** | AlexNet | ~60M | 2012 (Classic) | Simple, large FC layers |
 | **Exp06** | GoogLeNet | ~7M | 2014 (Efficient) | Inception modules, auxiliary loss |
 
@@ -493,7 +525,7 @@ Each experiment saves outputs to timestamped directories:
 
 ```
 outputs/
-├── exp01_detection_baseline/
+├── exp01_detection_YOLOv8_baseline/
 │   ├── run_YYYYMMDD_HHMMSS/
 │   │   ├── model/
 │   │   │   ├── best_model.pt
@@ -507,11 +539,13 @@ outputs/
 │   │       └── sample_detections.png
 │   └── run_YYYYMMDD_HHMMSS/
 │
-├── exp02_detection_modified_v1/
-├── exp03_detection_modified_v2/
-├── exp04_classification_baseline/
-├── exp05_classification_modified_v1/
-└── exp06_classification_modified_v2/
+├── exp01_detection_YOLOv8_v1/
+├── exp03_detection_YOLOv8_v2/
+├── exp04_classification_ResNet50_baseline/
+├── exp04_classification_ResNet50_v1/
+├── exp04_classification_ResNet50_v2/
+├── exp05_classification_AlexNet/
+└── exp06_classification_GoogLeNet/
 ```
 
 This organization ensures that:
@@ -806,7 +840,7 @@ This tests:
 #### Start with Classification Baseline (Simplest)
 
 ```bash
-python experiments/exp04_classification_baseline.py
+python experiments/exp04_classification_ResNet50_baseline.py
 ```
 
 **What happens:**
@@ -814,7 +848,7 @@ python experiments/exp04_classification_baseline.py
 2. Loads preprocessed emotion data
 3. Trains ResNet50 model
 4. Evaluates on test set
-5. Saves results to `outputs/exp04_classification_baseline/run_TIMESTAMP/`
+5. Saves results to `outputs/exp04_classification_ResNet50_baseline/run_TIMESTAMP/`
 
 **Expected runtime:**
 - CPU: ~30-60 minutes (small dataset, few epochs)
@@ -825,7 +859,7 @@ python experiments/exp04_classification_baseline.py
 After running an experiment:
 
 ```
-outputs/exp04_classification_baseline/run_20260420_201500/
+outputs/exp04_classification_ResNet50_baseline/run_20260420_201500/
 ├── model/
 │   ├── best_model.pth          ← Best model weights
 │   └── model_config.json       ← Configuration used
@@ -842,10 +876,10 @@ outputs/exp04_classification_baseline/run_20260420_201500/
 **View Results:**
 ```bash
 # Read the report
-cat outputs/exp04_classification_baseline/run_*/logs/experiment_report.md
+cat outputs/exp04_classification_ResNet50_baseline/run_*/logs/experiment_report.md
 
 # Check metrics
-cat outputs/exp04_classification_baseline/run_*/logs/evaluation_metrics.json
+cat outputs/exp04_classification_ResNet50_baseline/run_*/logs/evaluation_metrics.json
 ```
 
 ### 🔄 All Experiments
@@ -853,17 +887,19 @@ cat outputs/exp04_classification_baseline/run_*/logs/evaluation_metrics.json
 #### Detection Experiments (YOLOv8)
 
 ```bash
-python experiments/exp01_detection_baseline.py      # Baseline YOLOv8
-python experiments/exp02_detection_modified_v1.py   # Modified v1
-python experiments/exp03_detection_modified_v2.py   # Modified v2
+python experiments/exp01_detection_YOLOv8_baseline.py      # Baseline YOLOv8
+python experiments/exp01_detection_YOLOv8_v1.py            # Modified v1
+python experiments/exp01_detection_YOLOv8_v2.py            # Modified v2
 ```
 
-#### Classification Experiments (ResNet50)
+#### Classification Experiments (ResNet50 + Others)
 
 ```bash
-python experiments/exp04_classification_baseline.py      # Baseline ResNet50
-python experiments/exp05_classification_modified_v1.py   # Modified v1
-python experiments/exp06_classification_modified_v2.py   # Modified v2
+python experiments/exp04_classification_ResNet50_baseline.py  # Baseline ResNet50
+python experiments/exp04_classification_ResNet50_v1.py        # ResNet50 + FC layers
+python experiments/exp04_classification_ResNet50_v2.py        # ResNet50 full fine-tune
+python experiments/exp05_classification_AlexNet.py            # AlexNet classifier
+python experiments/exp06_classification_GoogLeNet.py          # GoogLeNet classifier
 ```
 
 ### Run All Experiments
@@ -922,7 +958,7 @@ Edit [`config.yaml`](config.yaml) for project-wide defaults.
 #### Option 1: Run Single Experiment
 ```bash
 cd experiments
-python exp01_detection_baseline.py
+python exp01_detection_YOLOv8_baseline.py
 ```
 
 #### Option 2: Run All Experiments Sequentially
@@ -932,7 +968,7 @@ bash scripts/run_all_experiments.sh
 
 #### Option 3: Run with Custom Parameters
 ```bash
-python exp01_detection_baseline.py --lr 0.001 --batch_size 32 --epochs 100
+python exp01_detection_YOLOv8_baseline.py --lr 0.001 --batch_size 32 --epochs 100
 ```
 
 ---
@@ -945,7 +981,7 @@ Each experiment has its own folder. Each run creates a timestamped sub-folder co
 
 ```
 outputs/
-├── exp01_detection_baseline/
+├── exp01_detection_YOLOv8_baseline/
 │   ├── run_20260420_193045/       ← First run
 │   │   ├── model/
 │   │   │   ├── best_model.pt      ← Best model weights
@@ -963,13 +999,19 @@ outputs/
 │   └── run_20260421_101523/       ← Second run (new timestamp)
 │       └── ... (same structure)
 │
-├── exp02_detection_modified_v1/
+├── exp01_detection_YOLOv8_v1/
 │   └── run_TIMESTAMP/
 │       ├── model/
 │       ├── logs/
 │       └── figures/
 │
-... (exp03-exp06 follow same pattern)
+├── exp01_detection_YOLOv8_v2/
+│   └── run_TIMESTAMP/
+│       ├── model/
+│       ├── logs/
+│       └── figures/
+│
+... (exp04-exp06 follow same pattern)
 ```
 
 ### 8.2 Output Contents
