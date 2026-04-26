@@ -127,18 +127,18 @@ def main():
     
     # Adjust training configuration to prevent overfitting and support >100 epochs
     training_config = {
-        'learning_rate': 0.0001,      # Lower LR for stable fine-tuning
+        'learning_rate': 0.0002,      # ↑ Increased LR for faster convergence
         'batch_size': 32,
-        'epochs': 150,                 # Increased to ensure >100 epochs
+        'epochs': 180,                 # ↑ Extended training duration
         'optimizer': 'adamw',          # AdamW for better weight decay handling
-        'weight_decay': 1e-2,          # Stronger regularization to prevent overfitting
-        'early_stopping_patience': 20, # Allow more time for convergence
+        'weight_decay': 5e-3,          # ↓ Slightly reduced WD to avoid over-regularization
+        'early_stopping_patience': 25, # ↑ Increased patience for longer training
         'use_amp': True,
         'gradient_accumulation_steps': 1,
         'label_smoothing': 0.1,
         'class_weighting': True,
         'lr_scheduler': 'cosine_annealing_warm_restarts', # Periodic restarts for long training
-        'T_0': 20,                     # Restart interval
+        'T_0': 30,                     # ↑ Extended restart interval
         'T_mult': 2,                   # Interval multiplier
         'eta_min': 1e-6                # Minimum learning rate
     }

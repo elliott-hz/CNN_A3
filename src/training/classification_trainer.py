@@ -37,7 +37,7 @@ class AugmentedDataset(Dataset):
         self.augment = augment
         
         if augment:
-            # Define augmentation transforms
+            # Define augmentation transforms with enhanced strategies
             self.transform = transforms.Compose([
                 transforms.RandomHorizontalFlip(p=0.5),
                 transforms.RandomRotation(degrees=15),
@@ -52,6 +52,8 @@ class AugmentedDataset(Dataset):
                     translate=(0.1, 0.1),
                     scale=(0.9, 1.1)
                 ),
+                transforms.RandomErasing(p=0.2),  # Added random erasing for robustness
+                transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 2.0)),  # Added blur for invariance
             ])
         else:
             self.transform = None
@@ -212,7 +214,8 @@ class ClassificationTrainer:
             print("PHASE 1: Training with frozen backbone")
             print("=" * 80)
             
-            freeze_epochs = min(10, self.epochs // 3)
+            # Extended Phase 1 for better convergence (15 epochs or 1/3 of total, whichever is smaller)
+            freeze_epochs = min(15, self.epochs // 3)
             optimizer = model.get_optimizer(lr=self.lr, weight_decay=self.weight_decay, 
                                           optimizer_type=self.optimizer_type)
             
@@ -224,7 +227,11 @@ class ClassificationTrainer:
             print("PHASE 2: Fine-tuning with unfrozen backbone")
             print("=" * 80)
             
-            model.unfreeze_backbone(unfreeze_all=False)
+            # Determine unfreeze strategy based on model type
+            # GoogLeNet benefits from full unfreeze, others use partial unfreeze
+            unfreeze_all = self.model_config.get('architecture', '').lower() == 'googlenet'
+            model.unfreeze_backbone(unfreeze_all=unfreeze_all)
+            
             finetune_lr = self.lr * 0.1  # Lower learning rate for fine-tuning
             optimizer = model.get_optimizer(lr=finetune_lr, weight_decay=self.weight_decay,
                                           optimizer_type=self.optimizer_type)

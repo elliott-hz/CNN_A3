@@ -734,6 +734,235 @@ watch -n 1 nvidia-smi
 
 ---
 
+## 🚀 Optimization Plan & Implementation Record
+
+### 📊 Optimization Background
+
+Based on the first round of experimental results (ResNet50: 64.2%, AlexNet: 47.16%, GoogLeNet: 36.33%), the following issues were identified:
+- **ResNet50**: Entered a plateau (Val Acc ~68%), needs to break through the bottleneck.
+- **AlexNet**: Severe underfitting (Train Acc only 70%), learning rate too low.
+- **GoogLeNet**: Severe underfitting + overfitting (Train/Val Acc both ~60%), auxiliary classifiers introducing noise.
+
+### 🎯 Optimization Goals
+
+Improve the accuracy of all three models while maintaining **dataset consistency**, **training epochs ≥ 100**, and **comparability**.
+
+---
+
+### ✅ Implemented Modifications
+
+#### 1. ResNet50 Optimization (exp04)
+
+**Configuration Adjustments**:
+```python
+training_config = {
+    'learning_rate': 0.0002,      # ↑ Increased from 0.0001
+    'epochs': 180,                # ↑ Extended from 150
+    'weight_decay': 5e-3,         # ↓ Reduced from 1e-2
+    'early_stopping_patience': 25, # ↑ Increased from 20
+    'T_0': 30,                    # ↑ Extended restart cycle
+}
+```
+
+**Expected Outcome**: Val Acc increased to 72-75%, Test Acc increased to 68-70%.
+
+---
+
+#### 2. AlexNet Optimization (exp05)
+
+**Key Changes**:
+1. **Switch Optimizer**: AdamW → SGD + Momentum (aligns with original AlexNet design).
+2. **Significantly Increase Learning Rate**: 0.0001 → 0.0005.
+3. **Significantly Extend Training**: 150 → 200 epochs.
+4. **Add BatchNorm Layers**: Added BN in classifier to improve gradient flow.
+
+**Configuration Adjustments**:
+```python
+training_config = {
+    'learning_rate': 0.0005,      # ↑↑ Significant increase
+    'epochs': 200,                # ↑↑ Significant extension
+    'optimizer': 'sgd',           # ← Switched back to SGD
+    'momentum': 0.9,
+    'early_stopping_patience': 30, # ↑↑ Significantly increased patience
+    'lr_scheduler': 'step',       # ← StepLR is more suitable for SGD
+    'lr_decay_factor': 0.5,
+    'lr_decay_interval': 50
+}
+```
+
+**Model Architecture Modification** (`src/models/classification_model.py`):
+```python
+self.classifier = nn.Sequential(
+    nn.Dropout(self.dropout_rate),
+    nn.Linear(9216, 512),
+    nn.BatchNorm1d(512),  # ← New BN layer
+    nn.ReLU(inplace=True),
+    nn.Dropout(self.dropout_rate),
+    nn.Linear(512, self.num_classes)
+)
+```
+
+**Expected Outcome**: Val Acc increased to 58-62%, Test Acc increased to 55-58%.
+
+---
+
+#### 3. GoogLeNet Optimization (exp06)
+
+**Key Changes**:
+1. **Disable Auxiliary Classifiers**: `use_auxiliary=False` (reduce noise).
+2. **Simplify Classifier Head**: Removed intermediate FC layers (1024→512→num_classes → 1024→num_classes).
+3. **Significantly Increase Learning Rate**: 0.0001 → 0.001.
+4. **Fully Unfreeze Backbone**: `unfreeze_all=True` in Phase 2.
+
+**Configuration Adjustments**:
+```python
+model_config['use_auxiliary'] = False  # ← Disable auxiliary classifiers
+
+training_config = {
+    'learning_rate': 0.001,       # ↑↑ Significant increase
+    'epochs': 180,                # ↑ Extended training
+    'weight_decay': 5e-3,         # ↓ Reduced regularization
+    'early_stopping_patience': 25, # ↑ Increased patience
+    'T_0': 25,                    # Restart cycle
+}
+```
+
+**Model Architecture Modification** (`src/models/classification_model.py`):
+```python
+self.classifier = nn.Sequential(
+    nn.Dropout(self.dropout_rate),
+    nn.Linear(1024, self.num_classes)  # ← Simplified to single layer
+)
+```
+
+**Trainer Logic Modification** (`src/training/classification_trainer.py`):
+```python
+# In Phase 2, decide unfreeze strategy based on architecture
+unfreeze_all = self.model_config.get('architecture', '').lower() == 'googlenet'
+model.unfreeze_backbone(unfreeze_all=unfreeze_all)
+```
+
+**Expected Outcome**: Val Acc increased to 55-60%, Test Acc increased to 52-56%.
+
+---
+
+#### 4. General Optimization - Enhanced Data Augmentation
+
+**Location**: `src/training/classification_trainer.py` - `AugmentedDataset` class
+
+**New Augmentation Strategies**:
+```python
+transforms.RandomErasing(p=0.2),  # Random occlusion, improves robustness
+transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 2.0)),  # Gaussian blur, improves invariance
+```
+
+**Effect**: All models share the same data augmentation strategy to ensure fair comparison.
+
+---
+
+#### 5. Trainer Optimization - Extended Phase 1
+
+**Location**: `src/training/classification_trainer.py` - `train()` method
+
+**Adjustment**:
+- Phase 1 (Frozen Backbone): 10 epochs → **15 epochs**
+- Purpose: Allow the classification head to better adapt to the task before starting fine-tuning.
+
+---
+
+### ⚖️ Comparability Guarantee
+
+| Dimension | Consistent | Allowed Differences |
+|-----------|------------|---------------------|
+| Dataset Split | ✅ Identical | - |
+| Data Augmentation | ✅ Same base augmentations | All use identical RandomErasing + GaussianBlur |
+| Epochs | ✅ All ≥ 150 | ResNet/GoogLeNet: 180, AlexNet: 200 |
+| Batch Size | ✅ All 32 | - |
+| Optimizer Type | ⚠️ Allowed to differ | ResNet/GoogLeNet use AdamW, AlexNet uses SGD |
+| Learning Rate | ❌ Model-specific | Adjusted based on architectural characteristics |
+| Scheduler | ⚠️ Allowed to differ | SGD uses StepLR, AdamW uses Cosine Annealing |
+| Weight Decay | ⚠️ Consistent range | Adjusted within 5e-3 ~ 1e-2 |
+| Early Stopping | ✅ Patience 25-30 | - |
+| Label Smoothing | ✅ All 0.1 | - |
+| Class Weighting | ✅ All enabled | - |
+
+---
+
+### 🚀 Running Guide
+
+#### Re-run Three Experiments
+
+```bash
+# 1. ResNet50 (Estimated 2-3 hours)
+python experiments/exp04_classification_ResNet50_baseline.py
+
+# 2. AlexNet (Estimated 3-4 hours, due to 200 epochs)
+python experiments/exp05_classification_AlexNet.py
+
+# 3. GoogLeNet (Estimated 2-3 hours)
+python experiments/exp06_classification_GoogLeNet.py
+```
+
+#### Quick Test (Small Subset)
+
+```bash
+# Add --use_small_subset parameter to each experiment for quick validation
+python experiments/exp04_classification_ResNet50_baseline.py --use_small_subset
+python experiments/exp05_classification_AlexNet.py --use_small_subset
+python experiments/exp06_classification_GoogLeNet.py --use_small_subset
+```
+
+---
+
+### 📈 Expected Improvement Magnitude
+
+| Model | Original Test Acc | Target Test Acc | Improvement | Key Improvements |
+|-------|-------------------|-----------------|-------------|------------------|
+| **ResNet50** | 64.20% | **68-70%** | +4-6% | Higher LR + Longer training + Stronger augmentation |
+| **AlexNet** | 47.16% | **55-58%** | +8-11% | SGD + High LR + BN layer + 200 epoch training |
+| **GoogLeNet** | 36.33% | **52-56%** | +16-20% | Disable aux + High LR + Simplified head + Full unfreeze |
+
+---
+
+### 🔍 Monitoring Points
+
+Focus on the following during training:
+1. **Train/Val Gap**: Should be controlled within 10%.
+2. **Val Loss Trend**: Should not continuously rise (signal of overfitting).
+3. **Convergence Speed**: 
+   - ResNet50 should reach 65%+ Val Acc within 100 epochs.
+   - AlexNet should reach 55%+ Val Acc within 150 epochs.
+   - GoogLeNet should reach 50%+ Val Acc within 120 epochs.
+4. **Learning Rate Changes**: Confirm scheduler is working correctly.
+
+---
+
+### 📝 List of Modified Files
+
+1. ✅ `experiments/exp04_classification_ResNet50_baseline.py` - Training configuration
+2. ✅ `experiments/exp05_classification_AlexNet.py` - Training configuration
+3. ✅ `experiments/exp06_classification_GoogLeNet.py` - Training configuration + Disable aux
+4. ✅ `src/models/classification_model.py` - AlexNet add BN, GoogLeNet simplify head
+5. ✅ `src/training/classification_trainer.py` - Phase 1 extension + unfreeze strategy + augmentation enhancement
+
+---
+
+### ⚠️ Notes
+
+1. **It is recommended to test with a small subset first** to confirm no code bugs before full training.
+2. **AlexNet training takes the longest** (200 epochs), please reserve sufficient GPU time.
+3. **GoogLeNet loss calculation is simpler after disabling aux**, no need to handle multiple outputs.
+4. **All models should maintain the same data preprocessing pipeline** to ensure fair comparison.
+5. **If overfitting intensifies**, consider further increasing dropout or weight_decay.
+
+---
+
+**Last Updated**: 2026-04-26  
+**Implemented By**: AI Assistant  
+**Status**: ✅ Code modifications completed, pending GPU environment verification
+
+---
+
 ## 📚 Related Documentation
 
 - **Data Preprocessing**: See [DATA_PREPROCESSING.md](DATA_PREPROCESSING.md) for dataset preparation

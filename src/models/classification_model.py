@@ -274,10 +274,11 @@ class AlexNetClassifier(nn.Module):
         
         # Replace classifier head
         # Original AlexNet classifier: 9216 -> 4096 -> 4096 -> 1000
-        # We replace with: 9216 -> 512 -> num_classes
+        # We replace with: 9216 -> 512 -> num_classes (with BatchNorm for better training)
         self.classifier = nn.Sequential(
             nn.Dropout(self.dropout_rate),
             nn.Linear(9216, 512),
+            nn.BatchNorm1d(512),  # Added BatchNorm for stability
             nn.ReLU(inplace=True),
             nn.Dropout(self.dropout_rate),
             nn.Linear(512, self.num_classes)
@@ -457,13 +458,10 @@ class GoogLeNetClassifier(nn.Module):
         
         # Replace main classifier
         # Original: 1024 -> 1000
-        # New: 1024 -> 512 -> num_classes
+        # Simplified: 1024 -> num_classes (removed intermediate FC layer for better gradient flow)
         self.classifier = nn.Sequential(
             nn.Dropout(self.dropout_rate),
-            nn.Linear(1024, 512),
-            nn.ReLU(inplace=True),
-            nn.Dropout(self.dropout_rate),
-            nn.Linear(512, self.num_classes)
+            nn.Linear(1024, self.num_classes)
         )
         
         # Replace auxiliary classifiers if present
