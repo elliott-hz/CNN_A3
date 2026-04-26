@@ -501,19 +501,65 @@ class GoogLeNetClassifier(nn.Module):
         Returns:
             Classification logits (or tuple with auxiliary outputs during training)
         """
-        # Use GoogLeNet's forward which handles inception modules
-        # The backbone.forward returns either single output or (output, aux1, aux2)
-        out = self.backbone(x)
+        # Manually extract features from GoogLeNet backbone
+        # We need to replicate the forward pass but stop before the final FC layer
         
-        # If auxiliary outputs are returned during training
-        if isinstance(out, tuple):
-            main_out, aux1_out, aux2_out = out
-            # Replace main classifier output
-            main_logits = self.classifier(main_out)
+        # GoogLeNet structure:
+        # conv1 -> bn1 -> relu -> maxpool1
+        # conv2 -> bn2 -> relu -> maxpool2
+        # inception3a -> inception3b -> maxpool3
+        # inception4a -> inception4b -> inception4c -> inception4d -> inception4e -> maxpool4
+        # inception5a -> inception5b -> avgpool -> dropout -> fc
+        
+        x = self.backbone.conv1(x)
+        x = self.backbone.bn1(x)
+        x = self.backbone.relu(x)
+        x = self.backbone.maxpool1(x)
+        
+        x = self.backbone.conv2(x)
+        x = self.backbone.bn2(x)
+        x = self.backbone.relu(x)
+        x = self.backbone.maxpool2(x)
+        
+        x = self.backbone.inception3a(x)
+        x = self.backbone.inception3b(x)
+        x = self.backbone.maxpool3(x)
+        
+        x = self.backbone.inception4a(x)
+        
+        # Auxiliary classifier 1 output (from inception4a)
+        if hasattr(self.backbone, 'aux1') and self.training:
+            aux1_out = self.backbone.aux1(x)
+        else:
+            aux1_out = None
+        
+        x = self.backbone.inception4b(x)
+        x = self.backbone.inception4c(x)
+        x = self.backbone.inception4d(x)
+        
+        # Auxiliary classifier 2 output (from inception4d)
+        if hasattr(self.backbone, 'aux2') and self.training:
+            aux2_out = self.backbone.aux2(x)
+        else:
+            aux2_out = None
+        
+        x = self.backbone.inception4e(x)
+        x = self.backbone.maxpool4(x)
+        
+        x = self.backbone.inception5a(x)
+        x = self.backbone.inception5b(x)
+        
+        # Global average pooling
+        x = self.backbone.avgpool(x)
+        x = torch.flatten(x, 1)  # Shape: (batch_size, 1024)
+        
+        # Apply custom classifier
+        main_logits = self.classifier(x)
+        
+        # Return based on training mode and auxiliary usage
+        if self.training and hasattr(self.backbone, 'aux1') and aux1_out is not None:
             return main_logits, aux1_out, aux2_out
         else:
-            # During inference, only main output
-            main_logits = self.classifier(out)
             return main_logits
     
     def unfreeze_backbone(self, unfreeze_all: bool = False):
