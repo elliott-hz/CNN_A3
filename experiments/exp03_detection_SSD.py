@@ -106,16 +106,16 @@ def main():
     training_config = {
         'learning_rate': 0.002,       # Reduced from 0.01 to prevent excessive false positives
         'batch_size': 32,            # Keep larger batch for stable gradients
-        'epochs': 2,               # Reduced from 120
+        'epochs': 120,               # Reduced from 120
         'optimizer': 'sgd',
         'weight_decay': 5e-4,        # Increased from 1e-4 for better regularization
         'early_stopping_patience': 30,
         'use_amp': True,
         'gradient_accumulation_steps': 1,
-        'warmup_epochs': 1,
+        'warmup_epochs': 5,
         'scheduler': 'cosine',
         'resume': RESUME_TRAINING,
-        'freeze_backbone_epochs': 1  # Extended from 5 to stabilize initial training
+        'freeze_backbone_epochs': 10  # Extended from 5 to stabilize initial training
     }
     
     logger.info(f"Model config: {model_config}")
@@ -271,7 +271,6 @@ def main():
 ## Results
 - Best mAP@0.5 (validation): {trainer.best_map50:.4f} at epoch {trainer.best_epoch}
 - Test mAP@0.5: {map_metrics['map50']:.4f}
-
 ## Key Characteristics
 - Single-stage detection architecture
 - Fast inference speed with moderate accuracy

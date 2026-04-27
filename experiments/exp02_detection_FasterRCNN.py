@@ -273,7 +273,6 @@ def main():
 ## Results
 - Best mAP@0.5 (validation): {trainer.best_map50:.4f} at epoch {trainer.best_epoch}
 - Test mAP@0.5: {map_metrics['map50']:.4f}
-# - Test mAP@0.5:0.95: {map_metrics['map50_95']:.4f}  # Not available in simplified metrics
 
 ## Key Characteristics
 - Two-stage detection architecture
