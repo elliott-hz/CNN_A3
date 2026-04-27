@@ -66,7 +66,6 @@ class TorchvisionDetectionTrainer:
         self.history = {
             'train_loss': [],
             'val_map50': [],
-            'val_map50_95': [],
             'learning_rate': []
         }
         
@@ -148,7 +147,7 @@ class TorchvisionDetectionTrainer:
         
         # CSV logger
         csv_path = logs_dir / "training_log.csv"
-        csv_fields = ['epoch', 'train_loss', 'val_map50', 'val_map50_95', 'precision', 'recall', 'true_positives', 'false_positives', 'false_negatives', 'lr']
+        csv_fields = ['epoch', 'train_loss', 'val_map50', 'precision', 'recall', 'true_positives', 'false_positives', 'false_negatives', 'lr']
         with open(csv_path, 'w', newline='') as f:
             writer = csv.writer(f)
             writer.writerow(csv_fields)
@@ -188,7 +187,6 @@ class TorchvisionDetectionTrainer:
             # Log metrics
             self.history['train_loss'].append(epoch_loss)
             self.history['val_map50'].append(val_metrics['map50'])
-            self.history['val_map50_95'].append(val_metrics['map50_95'])
             self.history['learning_rate'].append(current_lr)
             
             # Save to CSV
@@ -198,7 +196,6 @@ class TorchvisionDetectionTrainer:
                     epoch, 
                     f"{epoch_loss:.4f}",
                     f"{val_metrics['map50']:.4f}",
-                    f"{val_metrics['map50_95']:.4f}",
                     f"{val_metrics['precision']:.4f}",
                     f"{val_metrics['recall']:.4f}",
                     val_metrics['true_positives'],
@@ -211,7 +208,6 @@ class TorchvisionDetectionTrainer:
             print(f"\nEpoch [{epoch}/{self.epochs}] | "
                   f"Loss: {epoch_loss:.4f} | "
                   f"mAP@0.5: {val_metrics['map50']:.4f} | "
-                  f"mAP@0.5:0.95: {val_metrics['map50_95']:.4f} | "
                   f"P: {val_metrics['precision']:.4f} | "
                   f"R: {val_metrics['recall']:.4f} | "
                   f"TP/FP/FN: {val_metrics['true_positives']}/{val_metrics['false_positives']}/{val_metrics['false_negatives']} | "
@@ -345,92 +341,82 @@ class TorchvisionDetectionTrainer:
     
     def _calculate_map(self, predictions, ground_truths):
         """
-        Calculate mAP@0.5 and mAP@0.5:0.95 with optimized vectorized operations.
+        Simplified mAP calculation for training monitoring.
         
-        Uses batch processing and early termination for speed.
+        Fast approximation using sampling. For precise evaluation, use DetectionEvaluator after training.
+        Works for both Faster R-CNN (exp02) and SSD (exp03).
         """
-        iou_threshold = 0.5
-        conf_threshold = 0.3
+        # Sample first 5 images for speed (adjust if needed)
+        sample_indices = range(min(5, len(predictions)))
         
-        true_positives = 0
-        false_positives = 0
-        false_negatives = 0
+        all_tp, all_fp, all_fn = 0, 0, 0
         
-        for pred, gt in zip(predictions, ground_truths):
-            # Apply confidence threshold
-            high_conf_mask = pred['scores'] > conf_threshold
-            pred_boxes = pred['boxes'][high_conf_mask]
-            pred_scores = pred['scores'][high_conf_mask]
-            pred_labels = pred['labels'][high_conf_mask]
-            
-            # Apply NMS
-            if len(pred_boxes) > 0:
-                keep_indices = nms(pred_boxes, pred_scores, iou_threshold=0.5)
-                pred_boxes = pred_boxes[keep_indices]
-                pred_scores = pred_scores[keep_indices]
-                pred_labels = pred_labels[keep_indices]
-            
-            gt_boxes = gt['boxes']
-            gt_labels = gt['labels']
-            
-            if len(pred_boxes) == 0:
-                false_negatives += len(gt_boxes)
-                continue
-            
-            # Vectorized IoU computation for speed
-            matched_gt = set()
-            
-            # For each prediction, find best matching GT using vectorized ops
-            for i in range(len(pred_boxes)):
-                pred_box = pred_boxes[i]
-                pred_label = pred_labels[i]
-                
-                # Filter GT by class
-                class_mask = gt_labels == pred_label
-                if not class_mask.any():
-                    false_positives += 1
-                    continue
-                
-                filtered_gt_boxes = gt_boxes[class_mask]
-                
-                # Compute IoU vectorized
-                ious = self._compute_iou_batch(pred_box, filtered_gt_boxes)
-                
-                best_iou, best_idx = ious.max(0)
-                
-                if best_iou >= iou_threshold:
-                    # Get original index
-                    original_indices = torch.where(class_mask)[0]
-                    gt_idx = original_indices[best_idx].item()
-                    
-                    if gt_idx not in matched_gt:
-                        true_positives += 1
-                        matched_gt.add(gt_idx)
-                    else:
-                        false_positives += 1
-                else:
-                    false_positives += 1
-            
-            false_negatives += len(gt_boxes) - len(matched_gt)
+        for idx in sample_indices:
+            tp, fp, fn = self._evaluate_single_image(predictions[idx], ground_truths[idx])
+            all_tp += tp
+            all_fp += fp
+            all_fn += fn
         
-        # Calculate metrics
-        precision = true_positives / (true_positives + false_positives + 1e-6)
-        recall = true_positives / (true_positives + false_negatives + 1e-6)
-        map50 = precision * recall
-        map50_95 = map50 * 0.6
+        # Scale to full dataset
+        scale = len(predictions) / len(sample_indices)
+        tp = int(all_tp * scale)
+        fp = int(all_fp * scale)
+        fn = int(all_fn * scale)
+        
+        precision = tp / (tp + fp + 1e-6)
+        recall = tp / (tp + fn + 1e-6)
         
         return {
-            'map50': float(map50),
-            'map50_95': float(map50_95),
+            'map50': float(precision * recall),
             'precision': float(precision),
             'recall': float(recall),
-            'true_positives': true_positives,
-            'false_positives': false_positives,
-            'false_negatives': false_negatives
+            'true_positives': tp,
+            'false_positives': fp,
+            'false_negatives': fn
         }
     
+    def _evaluate_single_image(self, pred, gt):
+        """Evaluate single image: returns (TP, FP, FN). Fast version without NMS for training monitoring."""
+        conf_threshold = 0.3
+        iou_threshold = 0.5
+        
+        # Filter by confidence only (skip NMS for speed during training)
+        mask = pred['scores'] > conf_threshold
+        boxes = pred['boxes'][mask]
+        labels = pred['labels'][mask]
+        
+        if len(boxes) == 0:
+            return 0, 0, len(gt['boxes'])
+        
+        gt_boxes, gt_labels = gt['boxes'], gt['labels']
+        matched = set()
+        tp, fp = 0, 0
+        
+        for pred_box, pred_label in zip(boxes, labels):
+            # Find best matching GT of same class
+            class_mask = gt_labels == pred_label
+            if not class_mask.any():
+                fp += 1
+                continue
+            
+            ious = self._compute_iou_batch(pred_box, gt_boxes[class_mask])
+            best_iou, best_idx = ious.max(0)
+            
+            if best_iou >= iou_threshold:
+                gt_idx = torch.where(class_mask)[0][best_idx].item()
+                if gt_idx not in matched:
+                    tp += 1
+                    matched.add(gt_idx)
+                else:
+                    fp += 1
+            else:
+                fp += 1
+        
+        fn = len(gt_boxes) - len(matched)
+        return tp, fp, fn
+    
     def _compute_iou_batch(self, box1, boxes2):
-        """Compute IoU between one box and multiple boxes (vectorized)."""
+        """Vectorized IoU: one box vs multiple boxes."""
         x1 = torch.maximum(box1[0], boxes2[:, 0])
         y1 = torch.maximum(box1[1], boxes2[:, 1])
         x2 = torch.minimum(box1[2], boxes2[:, 2])
