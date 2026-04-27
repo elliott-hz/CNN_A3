@@ -96,10 +96,11 @@ def main():
     # Step 2: Initialize model and trainer
     logger.info("[Step 2/5] Initializing model and trainer...")
     
-    # Configure SSD model - Keep default 300x300 (pretrained on this size)
+    # Configure SSD model - Increase resolution for better detection quality
     model_config = SSD_CONFIG.copy()
     model_config['num_classes'] = dataset_config['nc'] + 1  # +1 for background class
-    # Keep min_size=300, max_size=300 to match pretrained backbone
+    model_config['min_size'] = 512  # Increased from 300 to improve small object detection
+    model_config['max_size'] = 512  # Increased from 300
     
     # Training configuration optimized for SSD convergence
     training_config = {

@@ -277,7 +277,7 @@ class SSDDetector(nn.Module):
         from torchvision.models.detection.ssd import SSDClassificationHead, SSDRegressionHead
         
         # Create new heads with proper initialization to reduce false positives
-        prior_prob = 0.01
+        prior_prob = 0.001  # Reduced from 0.01 for stronger background bias
         bias_value = -torch.log(torch.tensor((1 - prior_prob) / prior_prob))
         
         self.model.head.classification_head = SSDClassificationHead(
@@ -291,14 +291,14 @@ class SSDDetector(nn.Module):
             num_anchors=num_anchors
         )
         
-        # Initialize output layer biases to favor background class initially
+        # Initialize output layer biases to strongly favor background class initially
         # This is critical for reducing massive false positives in SSD
         for head in [self.model.head.classification_head, self.model.head.regression_head]:
             for module in head.modules():
                 if isinstance(module, torch.nn.Conv2d):
                     torch.nn.init.kaiming_normal_(module.weight, mode='fan_out', nonlinearity='relu')
                     if module.bias is not None:
-                        # Apply negative bias only to classification head's output layers
+                        # Apply strong negative bias to classification head's output layers
                         if (hasattr(head, 'num_classes') and 
                             module.out_channels == self.num_classes * max(num_anchors)):
                             torch.nn.init.constant_(module.bias, bias_value)

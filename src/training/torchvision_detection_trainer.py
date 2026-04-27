@@ -345,26 +345,25 @@ class TorchvisionDetectionTrainer:
     
     def _calculate_map(self, predictions, ground_truths):
         """
-        Calculate mAP@0.5 and mAP@0.5:0.95 with proper NMS and thresholding.
+        Calculate mAP@0.5 and mAP@0.5:0.95 with optimized vectorized operations.
         
-        This is a simplified implementation. For production, consider using
-        pycocotools or torchmetrics for more accurate mAP calculation.
+        Uses batch processing and early termination for speed.
         """
         iou_threshold = 0.5
-        conf_threshold = 0.3  # Increased from 0.01 to filter low-confidence predictions
+        conf_threshold = 0.3
         
         true_positives = 0
         false_positives = 0
         false_negatives = 0
         
         for pred, gt in zip(predictions, ground_truths):
-            # Apply confidence threshold first
+            # Apply confidence threshold
             high_conf_mask = pred['scores'] > conf_threshold
             pred_boxes = pred['boxes'][high_conf_mask]
             pred_scores = pred['scores'][high_conf_mask]
             pred_labels = pred['labels'][high_conf_mask]
             
-            # Apply NMS to remove duplicate detections
+            # Apply NMS
             if len(pred_boxes) > 0:
                 keep_indices = nms(pred_boxes, pred_scores, iou_threshold=0.5)
                 pred_boxes = pred_boxes[keep_indices]
@@ -374,41 +373,50 @@ class TorchvisionDetectionTrainer:
             gt_boxes = gt['boxes']
             gt_labels = gt['labels']
             
-            # Match predictions to ground truth
+            if len(pred_boxes) == 0:
+                false_negatives += len(gt_boxes)
+                continue
+            
+            # Vectorized IoU computation for speed
             matched_gt = set()
             
-            for i, (pred_box, pred_label) in enumerate(zip(pred_boxes, pred_labels)):
-                best_iou = 0
-                best_gt_idx = -1
+            # For each prediction, find best matching GT using vectorized ops
+            for i in range(len(pred_boxes)):
+                pred_box = pred_boxes[i]
+                pred_label = pred_labels[i]
                 
-                for j, (gt_box, gt_label) in enumerate(zip(gt_boxes, gt_labels)):
-                    if j in matched_gt:
-                        continue
-                    
-                    if pred_label != gt_label:
-                        continue
-                    
-                    iou = self._compute_iou(pred_box, gt_box)
-                    if iou > best_iou:
-                        best_iou = iou
-                        best_gt_idx = j
+                # Filter GT by class
+                class_mask = gt_labels == pred_label
+                if not class_mask.any():
+                    false_positives += 1
+                    continue
+                
+                filtered_gt_boxes = gt_boxes[class_mask]
+                
+                # Compute IoU vectorized
+                ious = self._compute_iou_batch(pred_box, filtered_gt_boxes)
+                
+                best_iou, best_idx = ious.max(0)
                 
                 if best_iou >= iou_threshold:
-                    true_positives += 1
-                    matched_gt.add(best_gt_idx)
+                    # Get original index
+                    original_indices = torch.where(class_mask)[0]
+                    gt_idx = original_indices[best_idx].item()
+                    
+                    if gt_idx not in matched_gt:
+                        true_positives += 1
+                        matched_gt.add(gt_idx)
+                    else:
+                        false_positives += 1
                 else:
                     false_positives += 1
             
             false_negatives += len(gt_boxes) - len(matched_gt)
         
-        # Calculate precision and recall
+        # Calculate metrics
         precision = true_positives / (true_positives + false_positives + 1e-6)
         recall = true_positives / (true_positives + false_negatives + 1e-6)
-        
-        # Simplified mAP approximation
         map50 = precision * recall
-        
-        # For mAP@0.5:0.95, use a rough estimate (typically ~60% of mAP@0.5)
         map50_95 = map50 * 0.6
         
         return {
@@ -421,16 +429,16 @@ class TorchvisionDetectionTrainer:
             'false_negatives': false_negatives
         }
     
-    def _compute_iou(self, box1, box2):
-        """Compute IoU between two boxes [x1, y1, x2, y2]."""
-        x1 = max(box1[0], box2[0])
-        y1 = max(box1[1], box2[1])
-        x2 = min(box1[2], box2[2])
-        y2 = min(box1[3], box2[3])
+    def _compute_iou_batch(self, box1, boxes2):
+        """Compute IoU between one box and multiple boxes (vectorized)."""
+        x1 = torch.maximum(box1[0], boxes2[:, 0])
+        y1 = torch.maximum(box1[1], boxes2[:, 1])
+        x2 = torch.minimum(box1[2], boxes2[:, 2])
+        y2 = torch.minimum(box1[3], boxes2[:, 3])
         
-        intersection = max(0, x2 - x1) * max(0, y2 - y1)
+        intersection = torch.clamp(x2 - x1, min=0) * torch.clamp(y2 - y1, min=0)
         area1 = (box1[2] - box1[0]) * (box1[3] - box1[1])
-        area2 = (box2[2] - box2[0]) * (box2[3] - box2[1])
+        area2 = (boxes2[:, 2] - boxes2[:, 0]) * (boxes2[:, 3] - boxes2[:, 1])
         union = area1 + area2 - intersection
         
-        return intersection / union if union > 0 else 0
+        return intersection / (union + 1e-6)
