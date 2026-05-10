@@ -119,7 +119,12 @@ async def load_models():
         )
         
         # Check device
-        device = "GPU" if torch.cuda.is_available() else "CPU"
+        if torch.cuda.is_available():
+            device = "GPU (CUDA)"
+        elif torch.backends.mps.is_available():
+            device = "GPU (MPS - Apple Silicon)"
+        else:
+            device = "CPU"
         print(f"\n✅ Models loaded successfully!")
         print(f"🖥️  Running on: {device}")
         print("=" * 80)
@@ -144,10 +149,17 @@ async def root():
 @app.get("/health")
 async def health_check():
     """Detailed health check"""
+    if torch.cuda.is_available():
+        device = "GPU (CUDA)"
+    elif torch.backends.mps.is_available():
+        device = "GPU (MPS - Apple Silicon)"
+    else:
+        device = "CPU"
+    
     return {
         "status": "healthy" if pipeline is not None else "unhealthy",
         "models_loaded": pipeline is not None,
-        "device": "GPU" if torch.cuda.is_available() else "CPU"
+        "device": device
     }
 
 
@@ -848,6 +860,121 @@ async def analyze_video_stream(file: UploadFile = File(...)):
             yield f"data: {json.dumps(error_data)}\n\n"
     
     return StreamingResponse(generate_progress(), media_type="text/event-stream")
+
+
+@app.websocket("/ws/live-stream")
+async def websocket_live_stream(websocket):
+    """
+    WebSocket endpoint for real-time live streaming inference.
+    Receives frames from client, runs detection + classification, sends back results.
+    
+    Client should send base64-encoded frames and receive JSON responses with detections.
+    
+    Note: Requires GPU (CUDA or MPS) for acceptable performance. CPU will be very slow.
+    """
+    global pipeline
+    
+    # Check if pipeline is initialized
+    if pipeline is None:
+        await websocket.close(code=1011, reason="Models not loaded yet")
+        return
+    
+    # Check device capability
+    if torch.cuda.is_available():
+        device_info = "GPU (CUDA)"
+    elif torch.backends.mps.is_available():
+        device_info = "GPU (MPS - Apple Silicon)"
+    else:
+        device_info = "CPU"
+        print("⚠️  WARNING: Running on CPU - live streaming will be very slow!")
+        print("💡 Recommendation: Use GPU (CUDA or MPS) for real-time performance")
+    
+    await websocket.accept()
+    print(f"✅ Live stream connection established - Using: {device_info}")
+    
+    try:
+        while True:
+            # Receive frame data from client
+            data = await websocket.receive_text()
+            
+            try:
+                # Parse incoming message
+                message = json.loads(data)
+                
+                if 'frame' not in message:
+                    await websocket.send_json({
+                        'error': 'No frame data received',
+                        'success': False
+                    })
+                    continue
+                
+                # Decode base64 image
+                frame_base64 = message['frame']
+                frame_bytes = base64.b64decode(frame_base64)
+                frame_array = np.frombuffer(frame_bytes, dtype=np.uint8)
+                frame_bgr = cv2.imdecode(frame_array, cv2.IMREAD_COLOR)
+                
+                if frame_bgr is None:
+                    await websocket.send_json({
+                        'error': 'Failed to decode frame',
+                        'success': False
+                    })
+                    continue
+                
+                # Convert to RGB for pipeline
+                frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+                
+                # Save frame temporarily for YOLOv8 (expects file path)
+                temp_frame_path = f"{tempfile.gettempdir()}/{uuid.uuid4()}.jpg"
+                cv2.imwrite(temp_frame_path, frame_rgb)
+                
+                try:
+                    # Run inference pipeline
+                    results = pipeline.predict(temp_frame_path, conf=0.5, iou=0.45)
+                    
+                    # Format response
+                    response_data = {
+                        'success': True,
+                        'detections': [],
+                        'device': device_info,
+                        'timestamp': message.get('timestamp', 0)
+                    }
+                    
+                    for result in results:
+                        response_data['detections'].append({
+                            'dog_id': result['dog_id'],
+                            'bbox': result['bbox'],
+                            'detection_confidence': result['detection_confidence'],
+                            'emotion': result['emotion'],
+                            'emotion_confidence': result['emotion_confidence'],
+                            'emotion_probabilities': result['emotion_probabilities']
+                        })
+                    
+                    # Send results back to client
+                    await websocket.send_json(response_data)
+                    
+                finally:
+                    # Clean up temporary file
+                    if os.path.exists(temp_frame_path):
+                        os.unlink(temp_frame_path)
+                
+            except json.JSONDecodeError:
+                await websocket.send_json({
+                    'error': 'Invalid JSON format',
+                    'success': False
+                })
+            except Exception as e:
+                print(f"Error processing frame: {e}")
+                await websocket.send_json({
+                    'error': str(e),
+                    'success': False
+                })
+    
+    except Exception as e:
+        print(f"WebSocket connection error: {e}")
+    finally:
+        print("Live stream connection closed")
+        await websocket.close()
 
 
 if __name__ == "__main__":

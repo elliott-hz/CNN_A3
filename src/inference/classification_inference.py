@@ -36,10 +36,17 @@ class ClassificationInference:
         self.model.load_state_dict(checkpoint['model_state_dict'])
         self.model.eval()
         
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        # Device setup - Support CUDA (NVIDIA), MPS (Apple Silicon), or CPU
+        if torch.cuda.is_available():
+            self.device = torch.device('cuda')
+        elif torch.backends.mps.is_available():
+            self.device = torch.device('mps')
+        else:
+            self.device = torch.device('cpu')
         self.model.to(self.device)
         
         print(f"Loaded classification model from: {model_path}")
+        print(f"Using device: {self.device}")
     
     def predict(self, image) -> Dict[str, Any]:
         """
