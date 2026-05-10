@@ -154,15 +154,21 @@ class ClassificationTrainer:
         self.T_mult = training_config.get('T_mult', 1)
         self.eta_min = training_config.get('eta_min', 0)
         
-        # Device setup
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        # Device setup - Support CUDA (NVIDIA), MPS (Apple Silicon), or CPU
+        if torch.cuda.is_available():
+            self.device = torch.device('cuda')
+        elif torch.backends.mps.is_available():
+            self.device = torch.device('mps')
+        else:
+            self.device = torch.device('cpu')
         print(f"Using device: {self.device}")
         
         # Training state
         self.best_val_acc = 0.0
         self.early_stop_counter = 0
         self.training_history = []
-        self.scaler = torch.cuda.amp.GradScaler() if self.use_amp else None
+        # Use GradScaler only for CUDA, not for MPS
+        self.scaler = torch.cuda.amp.GradScaler() if (self.use_amp and self.device.type == 'cuda') else None
     
     def train(self, model, X_train, y_train, X_valid, y_valid, output_dir: str):
         """
@@ -386,8 +392,8 @@ class ClassificationTrainer:
             inputs = inputs.to(self.device)
             targets = targets.to(self.device)
             
-            # Mixed precision training
-            if self.use_amp:
+            # Mixed precision training (only for CUDA, not MPS)
+            if self.use_amp and self.device.type == 'cuda':
                 # Autocast for forward pass and loss calculation
                 with torch.cuda.amp.autocast():
                     outputs = model(inputs)
@@ -478,7 +484,7 @@ class ClassificationTrainer:
                 inputs = inputs.to(self.device)
                 targets = targets.to(self.device)
                 
-                if self.use_amp:
+                if self.use_amp and self.device.type == 'cuda':
                     # Autocast for validation forward pass and loss calculation
                     with torch.cuda.amp.autocast():
                         outputs = model(inputs)
@@ -527,12 +533,16 @@ class ClassificationTrainer:
         dataset = AugmentedDataset(X, y, augment=train)
         
         # Create dataloader
+        # pin_memory only works with CUDA, not MPS
+        use_pin_memory = self.device.type == 'cuda'
+        # Optimize num_workers: 0 for MPS (avoids multiprocessing overhead on macOS)
+        num_workers = 0 if self.device.type == 'mps' else 2
         dataloader = DataLoader(
             dataset,
             batch_size=self.batch_size,
             shuffle=train,
-            num_workers=2,  # Reduced from 4 to save memory
-            pin_memory=True,
+            num_workers=num_workers,
+            pin_memory=use_pin_memory,
             drop_last=train
         )
         

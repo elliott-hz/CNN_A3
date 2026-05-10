@@ -128,12 +128,12 @@ def main():
     # Adjust training configuration to prevent overfitting and support extended training
     training_config = {
         'learning_rate': 0.0002,      # Learning rate for AdamW
-        'batch_size': 32,
+        'batch_size': 64,              # Reverted to 64
         'epochs': 250,                 # ↑ Extended from 180 for longer training
         'optimizer': 'adamw',          # AdamW for better weight decay handling
         'weight_decay': 5e-3,          # Weight decay for regularization
         'early_stopping_patience': 40, # ↑ Increased from 25 to allow longer training
-        'use_amp': True,
+        'use_amp': False,              # Disabled for MPS (no benefit on Apple Silicon)
         'gradient_accumulation_steps': 1,
         'label_smoothing': 0.1,
         'class_weighting': True,
