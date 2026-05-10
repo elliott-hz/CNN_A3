@@ -934,13 +934,10 @@ async def websocket_live_stream(websocket: WebSocket):
                 # Convert to RGB for pipeline
                 frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
                 
-                # Save frame temporarily for YOLOv8 (expects file path)
-                temp_frame_path = f"{tempfile.gettempdir()}/{uuid.uuid4()}.jpg"
-                cv2.imwrite(temp_frame_path, frame_rgb)
-                
                 try:
-                    # Run inference pipeline
-                    results = pipeline.predict(temp_frame_path, conf=0.5, iou=0.45)
+                    # OPTIMIZATION: Process directly from numpy array (skip file I/O)
+                    # Pipeline supports both file paths and numpy arrays
+                    results = pipeline.predict(frame_rgb, conf=0.5, iou=0.45)
                     
                     # Format response
                     response_data = {
@@ -963,10 +960,12 @@ async def websocket_live_stream(websocket: WebSocket):
                     # Send results back to client
                     await websocket.send_json(response_data)
                     
-                finally:
-                    # Clean up temporary file
-                    if os.path.exists(temp_frame_path):
-                        os.unlink(temp_frame_path)
+                except Exception as e:
+                    print(f"Error during inference: {e}")
+                    await websocket.send_json({
+                        'error': str(e),
+                        'success': False
+                    })
                 
             except json.JSONDecodeError:
                 await websocket.send_json({

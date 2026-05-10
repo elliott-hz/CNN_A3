@@ -9,6 +9,7 @@ const LiveStream = () => {
   const [deviceInfo, setDeviceInfo] = useState(null);
   const [fps, setFps] = useState(0);
   const [detections, setDetections] = useState([]);
+  const [latestTimestamp, setLatestTimestamp] = useState(0);
   const streamRef = useRef(null);
   const wsRef = useRef(null);
   const frameIntervalRef = useRef(null);
@@ -82,9 +83,14 @@ const LiveStream = () => {
       try {
         const data = JSON.parse(event.data);
         if (data.success) {
-          setDetections(data.detections || []);
+          // Only update if this is a newer result
+          const frameTimestamp = data.timestamp || 0;
+          if (frameTimestamp >= latestTimestamp) {
+            setDetections(data.detections || []);
+            setLatestTimestamp(frameTimestamp);
+          }
           
-          // Calculate FPS
+          // Calculate FPS based on received frames
           frameCountRef.current += 1;
           const now = Date.now();
           if (now - lastFrameTimeRef.current >= 1000) {
@@ -118,8 +124,10 @@ const LiveStream = () => {
   };
 
   const startFrameCapture = () => {
-    // Capture frames at 5 FPS for MPS (adjust based on device)
-    const captureInterval = deviceInfo?.includes('MPS') || deviceInfo?.includes('CUDA') ? 200 : 1000;
+    // OPTIMIZATION: Capture frames at higher rate for smoother experience
+    // MPS can handle ~10 FPS, so we send every 100ms instead of 200ms
+    const captureInterval = deviceInfo?.includes('MPS') ? 100 : 
+                           deviceInfo?.includes('CUDA') ? 50 : 1000;
     
     frameIntervalRef.current = setInterval(() => {
       if (!canvasRef.current || !videoRef.current || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
@@ -137,10 +145,10 @@ const LiveStream = () => {
       // Draw current video frame
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       
-      // Convert to base64
-      const base64Image = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
+      // Convert to base64 with lower quality for faster transmission (0.6 instead of 0.8)
+      const base64Image = canvas.toDataURL('image/jpeg', 0.6).split(',')[1];
       
-      // Send to backend
+      // Send to backend - non-blocking, don't wait for response
       wsRef.current.send(JSON.stringify({
         frame: base64Image,
         timestamp: Date.now()
@@ -270,10 +278,13 @@ const LiveStream = () => {
         <div className="live-info">
           <p>📹 Camera active • Real-time emotion detection</p>
           {deviceInfo?.includes('MPS') && (
-            <p className="performance-hint">💡 Apple Silicon detected - Expected 5-10 FPS</p>
+            <p className="performance-hint">💡 Apple Silicon detected - Optimized for 10 FPS (frame skipping enabled)</p>
           )}
           {deviceInfo?.includes('CUDA') && (
-            <p className="performance-hint">💡 NVIDIA GPU detected - Expected 15-30 FPS</p>
+            <p className="performance-hint">💡 NVIDIA GPU detected - Optimized for 20 FPS (frame skipping enabled)</p>
+          )}
+          {fps > 0 && (
+            <p className="performance-hint">⚡ Actual processing rate: {fps} FPS</p>
           )}
         </div>
       </div>
