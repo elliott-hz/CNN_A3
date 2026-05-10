@@ -2,7 +2,7 @@ import { useState, useRef } from 'react';
 import { detectEmotion } from '../services/api';
 import './ImageUploader.css';
 
-const MAX_IMAGE_SIZE = 640; // Maximum dimension for inference
+const MAX_IMAGE_SIZE = 1280; // Maximum dimension for inference (increased for better label visibility)
 
 const ImageUploader = ({ onResults }) => {
   const [selectedImage, setSelectedImage] = useState(null);
@@ -29,7 +29,7 @@ const ImageUploader = ({ onResults }) => {
     event.preventDefault();
   };
 
-  // Resize image to max dimension while maintaining aspect ratio
+  // Resize image to max dimension while maintaining aspect ratio (only downscale, never upscale)
   const resizeImage = (file) => {
     return new Promise((resolve) => {
       const reader = new FileReader();
@@ -39,30 +39,32 @@ const ImageUploader = ({ onResults }) => {
           let width = img.width;
           let height = img.height;
 
-          // Calculate new dimensions
-          if (width > height) {
-            if (width > MAX_IMAGE_SIZE) {
+          // Only resize if image exceeds MAX_IMAGE_SIZE
+          if (width > MAX_IMAGE_SIZE || height > MAX_IMAGE_SIZE) {
+            // Calculate new dimensions - only downscale
+            if (width > height) {
               height = Math.round((height * MAX_IMAGE_SIZE) / width);
               width = MAX_IMAGE_SIZE;
-            }
-          } else {
-            if (height > MAX_IMAGE_SIZE) {
+            } else {
               width = Math.round((width * MAX_IMAGE_SIZE) / height);
               height = MAX_IMAGE_SIZE;
             }
+
+            // Create canvas and resize
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+
+            // Convert to blob
+            canvas.toBlob((blob) => {
+              resolve(blob);
+            }, file.type, 0.9); // 90% quality
+          } else {
+            // Image is already within limits, use original
+            resolve(file);
           }
-
-          // Create canvas and resize
-          const canvas = document.createElement('canvas');
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          ctx.drawImage(img, 0, 0, width, height);
-
-          // Convert to blob
-          canvas.toBlob((blob) => {
-            resolve(blob);
-          }, file.type, 0.9); // 90% quality
         };
         img.src = e.target.result;
       };
