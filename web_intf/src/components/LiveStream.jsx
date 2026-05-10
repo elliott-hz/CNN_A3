@@ -180,15 +180,15 @@ const LiveStream = () => {
       const width = x2 - x1;
       const height = y2 - y1;
       
-      // Color based on emotion
+      // Color based on emotion - MATCHES BACKEND EMOTION CLASSES
       const colors = {
-        'happy': '#4CAF50',
-        'sad': '#2196F3',
-        'angry': '#f44336',
-        'surprised': '#FF9800',
-        'neutral': '#9E9E9E'
+        'happy': '#4CAF50',      // Green
+        'angry': '#f44336',      // Red
+        'relaxed': '#2196F3',    // Blue
+        'frown': '#FF9800',      // Orange
+        'alert': '#9C27B0'       // Purple
       };
-      const color = colors[det.emotion] || '#FFFFFF';
+      const color = colors[det.emotion] || '#666666';  // Default to gray instead of white
       
       // Draw bounding box
       ctx.strokeStyle = color;
@@ -202,7 +202,7 @@ const LiveStream = () => {
       ctx.fillStyle = color;
       ctx.fillRect(x1, y1 - 25, textWidth + 10, 25);
       
-      // Draw label text
+      // Draw label text - ALWAYS WHITE for contrast
       ctx.fillStyle = '#FFFFFF';
       ctx.fillText(label, x1 + 5, y1 - 7);
     });
