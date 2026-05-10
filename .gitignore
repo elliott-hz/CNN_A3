@@ -1,5 +1,6 @@
 # Data directory - too large to commit, manage separately
 data/
+outputs/
 
 # Python
 __pycache__/
