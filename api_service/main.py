@@ -3,7 +3,7 @@ Dog Emotion Recognition API Service
 FastAPI backend for dog face detection and emotion classification
 """
 
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -863,7 +863,7 @@ async def analyze_video_stream(file: UploadFile = File(...)):
 
 
 @app.websocket("/ws/live-stream")
-async def websocket_live_stream(websocket):
+async def websocket_live_stream(websocket: WebSocket):
     """
     WebSocket endpoint for real-time live streaming inference.
     Receives frames from client, runs detection + classification, sends back results.
@@ -879,6 +879,15 @@ async def websocket_live_stream(websocket):
         await websocket.close(code=1011, reason="Models not loaded yet")
         return
     
+    # Check origin for security (allow localhost development)
+    origin = websocket.headers.get("origin", "")
+    allowed_origins = ["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173", "http://127.0.0.1:3000"]
+    
+    if origin and origin not in allowed_origins:
+        print(f"⚠️  WebSocket connection rejected from origin: {origin}")
+        await websocket.close(code=4003, reason="Origin not allowed")
+        return
+    
     # Check device capability
     if torch.cuda.is_available():
         device_info = "GPU (CUDA)"
@@ -886,11 +895,12 @@ async def websocket_live_stream(websocket):
         device_info = "GPU (MPS - Apple Silicon)"
     else:
         device_info = "CPU"
-        print("⚠️  WARNING: Running on CPU - live streaming will be very slow!")
+        print("️  WARNING: Running on CPU - live streaming will be very slow!")
         print("💡 Recommendation: Use GPU (CUDA or MPS) for real-time performance")
     
+    # Accept the WebSocket connection
     await websocket.accept()
-    print(f"✅ Live stream connection established - Using: {device_info}")
+    print(f"✅ Live stream connection established from {origin} - Using: {device_info}")
     
     try:
         while True:

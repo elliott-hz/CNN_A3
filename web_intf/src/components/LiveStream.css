@@ -2,6 +2,53 @@
   width: 100%;
 }
 
+.device-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+  padding: 0 5px;
+}
+
+.device-badge {
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.device-badge.gpu-ok {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.device-badge.cpu-warning {
+  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  color: white;
+  animation: pulseWarning 2s infinite;
+}
+
+@keyframes pulseWarning {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.fps-counter {
+  background-color: #333;
+  color: #00ff00;
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 0.9rem;
+  font-weight: 700;
+  font-family: 'Courier New', monospace;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
 .live-video-container {
   position: relative;
   width: 100%;
@@ -25,13 +72,60 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(0, 0, 0, 0.8);
+  background-color: rgba(0, 0, 0, 0.9);
   display: flex;
   align-items: center;
   justify-content: center;
   color: white;
   font-size: 1.1rem;
   font-weight: 500;
+  z-index: 100;
+}
+
+.error-overlay.cpu-error {
+  background-color: rgba(244, 67, 54, 0.95);
+}
+
+.error-content {
+  text-align: center;
+  padding: 30px;
+  max-width: 600px;
+}
+
+.error-content h3 {
+  font-size: 1.5rem;
+  margin-bottom: 15px;
+  color: #fff;
+}
+
+.error-content p {
+  font-size: 1rem;
+  margin-bottom: 20px;
+  line-height: 1.6;
+}
+
+.recommendations {
+  background-color: rgba(255, 255, 255, 0.1);
+  padding: 20px;
+  border-radius: 8px;
+  text-align: left;
+}
+
+.recommendations h4 {
+  margin-bottom: 10px;
+  font-size: 1.1rem;
+}
+
+.recommendations ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.recommendations li {
+  padding: 8px 0;
+  font-size: 0.95rem;
+  line-height: 1.5;
 }
 
 .live-indicator {
@@ -48,6 +142,7 @@
   align-items: center;
   gap: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  z-index: 10;
 }
 
 .live-dot {
@@ -78,6 +173,7 @@
   color: white;
   padding: 30px 20px 20px;
   text-align: center;
+  z-index: 10;
 }
 
 .live-info p {
@@ -85,13 +181,56 @@
   font-size: 0.95rem;
 }
 
-.live-info .hint {
+.live-info .performance-hint {
   font-size: 0.85rem;
-  opacity: 0.8;
+  opacity: 0.9;
+  color: #4CAF50;
+  font-weight: 600;
+}
+
+.controls {
+  margin-top: 20px;
+  text-align: center;
+}
+
+.btn-start, .btn-stop {
+  padding: 12px 32px;
+  font-size: 1rem;
+  font-weight: 600;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.btn-start {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.btn-start:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(102, 126, 234, 0.4);
+}
+
+.btn-stop {
+  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  color: white;
+}
+
+.btn-stop:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(245, 87, 108, 0.4);
 }
 
 /* Responsive Design */
 @media (max-width: 768px) {
+  .device-info {
+    flex-direction: column;
+    gap: 10px;
+  }
+
   .live-indicator {
     top: 10px;
     left: 10px;
@@ -105,5 +244,17 @@
 
   .live-info p {
     font-size: 0.85rem;
+  }
+
+  .error-content {
+    padding: 20px;
+  }
+
+  .error-content h3 {
+    font-size: 1.2rem;
+  }
+
+  .recommendations {
+    padding: 15px;
   }
 }
