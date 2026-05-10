@@ -10,9 +10,11 @@ const LiveStream = () => {
   const [fps, setFps] = useState(0);
   const [detections, setDetections] = useState([]);
   const [latestTimestamp, setLatestTimestamp] = useState(0);
+  const detectionsRef = useRef([]);
   const streamRef = useRef(null);
   const wsRef = useRef(null);
   const frameIntervalRef = useRef(null);
+  const animationFrameRef = useRef(null);
   const lastFrameTimeRef = useRef(0);
   const frameCountRef = useRef(0);
 
@@ -138,9 +140,11 @@ const LiveStream = () => {
       const video = videoRef.current;
       const ctx = canvas.getContext('2d');
       
-      // Set canvas size to match video
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
+      // Set canvas size to match video (only when needed)
+      if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+      }
       
       // Draw current video frame
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
@@ -165,6 +169,10 @@ const LiveStream = () => {
       clearInterval(frameIntervalRef.current);
       frameIntervalRef.current = null;
     }
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
     setIsStreaming(false);
     setFps(0);
     setDetections([]);
@@ -182,8 +190,8 @@ const LiveStream = () => {
     // Draw current video frame
     ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
     
-    // Draw bounding boxes and labels
-    detections.forEach((det, idx) => {
+    // Draw bounding boxes and labels using ref to avoid stale closures in animation loop
+    detectionsRef.current.forEach((det, idx) => {
       const [x1, y1, x2, y2] = det.bbox;
       const width = x2 - x1;
       const height = y2 - y1;
@@ -216,12 +224,29 @@ const LiveStream = () => {
     });
   };
 
-  // Redraw canvas when detections update
+  // Keep detectionsRef in sync with detections state
   useEffect(() => {
-    if (isStreaming && detections.length > 0) {
-      drawDetections();
-    }
+    detectionsRef.current = detections;
   }, [detections]);
+
+  // Redraw canvas continuously for smooth video (60 FPS)
+  useEffect(() => {
+    if (!isStreaming) return;
+    
+    const render = () => {
+      drawDetections();
+      animationFrameRef.current = requestAnimationFrame(render);
+    };
+    
+    animationFrameRef.current = requestAnimationFrame(render);
+    
+    return () => {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+    };
+  }, [isStreaming]);
 
   return (
     <div className="live-stream">
